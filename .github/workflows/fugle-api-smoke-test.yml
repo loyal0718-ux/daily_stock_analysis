@@ -1,0 +1,66 @@
+name: Fugle API smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fugle-api-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Test Fugle Taiwan stock quote API
+        env:
+          FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("FUGLE_API_KEY", "").strip()
+          if not api_key:
+              print("FAIL: FUGLE_API_KEY is unavailable to this workflow.")
+              sys.exit(1)
+
+          symbols = ("2330", "2344")
+          failures = 0
+
+          for symbol in symbols:
+              url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
+              request = urllib.request.Request(
+                  url,
+                  headers={"X-API-KEY": api_key, "Accept": "application/json"},
+                  method="GET",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  if not isinstance(payload, dict):
+                      raise ValueError("Unexpected response format")
+
+                  print(
+                      f"OK {symbol}: "
+                      f"name={payload.get('name')}, "
+                      f"date={payload.get('date')}, "
+                      f"lastPrice={payload.get('lastPrice')}, "
+                      f"changePercent={payload.get('changePercent')}, "
+                      f"closeTime={payload.get('closeTime')}"
+                  )
+              except urllib.error.HTTPError as exc:
+                  failures += 1
+                  print(f"FAIL {symbol}: HTTP {exc.code} (response body withheld)")
+              except Exception as exc:
+                  failures += 1
+                  print(f"FAIL {symbol}: {type(exc).__name__}: {exc}")
+
+          if failures:
+              print(f"Fugle API test failed for {failures} symbol(s).")
+              sys.exit(1)
+
+          print("SUCCESS: Fugle API key can retrieve both Taiwan stock quotes.")
+          PY
