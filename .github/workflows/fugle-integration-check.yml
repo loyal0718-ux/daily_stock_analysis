@@ -1,4 +1,4 @@
-name: Fugle integration check
+name: Fugle Taiwan 9-stock integration check
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 jobs:
   fugle-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -25,24 +25,53 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Fugle is selected by the Taiwan quote router
+      - name: Verify watchlist configuration and Fugle quote routing for all nine stocks
         env:
           FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+          STOCK_LIST_CONFIG: ${{ vars.STOCK_LIST || secrets.STOCK_LIST }}
         run: |
+          if [ -n "${STOCK_LIST_CONFIG:-}" ]; then
+            export STOCK_LIST="$STOCK_LIST_CONFIG"
+          fi
           python - <<'PY'
           import os
           import sys
+          from src.config import Config
           from data_provider.base import DataFetcherManager
+
+          expected = [
+              "1303.TW", "2408.TW", "2603.TW", "2409.TW", "2344.TW",
+              "2454.TW", "3231.TW", "2330.TW", "2881.TW",
+          ]
 
           if not os.environ.get("FUGLE_API_KEY", "").strip():
               print("FAIL: FUGLE_API_KEY is unavailable.")
               sys.exit(1)
 
+          if not os.environ.get("STOCK_LIST", "").strip():
+              print("FAIL: STOCK_LIST was not passed from GitHub Variables/Secrets.")
+              sys.exit(1)
+
+          config = Config.get_instance()
+          configured = config.stock_list
+          print(f"Configured watchlist ({len(configured)}): {', '.join(configured)}")
+
+          if configured != expected:
+              print("FAIL: Configured STOCK_LIST does not exactly match the expected nine stocks.")
+              print(f"Expected: {', '.join(expected)}")
+              sys.exit(1)
+
           manager = DataFetcherManager()
           failed = 0
 
-          for symbol in ("2330.TW", "2344.TW"):
-              quote = manager.get_realtime_quote(symbol)
+          for symbol in expected:
+              try:
+                  quote = manager.get_realtime_quote(symbol)
+              except Exception as exc:
+                  failed += 1
+                  print(f"FAIL {symbol}: exception={type(exc).__name__}: {exc}")
+                  continue
+
               if quote is None:
                   failed += 1
                   print(f"FAIL {symbol}: no quote returned")
@@ -50,18 +79,18 @@ jobs:
 
               source = getattr(quote.source, "value", str(quote.source))
               print(
-                  f"OK {symbol}: source={source}, name={quote.name}, "
-                  f"price={quote.price}, change_pct={quote.change_pct}, "
+                  f"{'OK' if source == 'fugle' else 'FAIL'} {symbol}: "
+                  f"source={source}, name={quote.name}, price={quote.price}, "
+                  f"change_pct={quote.change_pct}, "
                   f"provider_timestamp={quote.provider_timestamp}, "
                   f"is_stale={quote.is_stale}"
               )
               if source != "fugle":
                   failed += 1
-                  print(f"FAIL {symbol}: expected Fugle source, got {source}")
 
           if failed:
-              print(f"Fugle integration check failed for {failed} symbol(s).")
+              print(f"Fugle 9-stock integration check failed for {failed} stock(s).")
               sys.exit(1)
 
-          print("SUCCESS: Taiwan quote router selected Fugle for both symbols.")
+          print("SUCCESS: configured nine-stock watchlist loaded and all nine quotes routed through Fugle.")
           PY
