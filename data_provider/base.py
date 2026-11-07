@@ -1817,6 +1817,7 @@ class DataFetcherManager:
         from .yfinance_fetcher import YfinanceFetcher
         from .longbridge_fetcher import LongbridgeFetcher
         from .futu_fetcher import FutuFetcher
+        from .fugle_fetcher import FugleFetcher
         config = get_config()
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
         efinance = EfinanceFetcher()
@@ -1826,6 +1827,12 @@ class DataFetcherManager:
         baostock = BaostockFetcher()
         yfinance = YfinanceFetcher()
         optional_fetchers: List[BaseFetcher] = []
+
+        fugle_api_key = (getattr(config, "fugle_api_key", None) or "").strip()
+        if fugle_api_key:
+            optional_fetchers.append(FugleFetcher(api_key=fugle_api_key))
+        else:
+            logger.debug("[数据源初始化] 跳过未配置的 FugleFetcher")
 
         tushare_token = (getattr(config, "tushare_token", None) or "").strip()
         if tushare_token:
@@ -2393,6 +2400,7 @@ class DataFetcherManager:
             "AlphaVantageFetcher": "alphavantage",
             "EfinanceFetcher": "efinance",
             "TushareFetcher": "tushare",
+            "FugleFetcher": "fugle",
         }
         return mapping.get(fetcher_name, fetcher_name.replace("Fetcher", "").lower())
 
@@ -2491,7 +2499,15 @@ class DataFetcherManager:
         is_tw = (not is_us) and (not is_hk) and _is_tw_market(stock_code)
 
         if is_jp or is_kr or is_tw:
-            market_label = "日股" if is_jp else "韩股" if is_kr else "台股"
+            market_label = "日股" if is_jp else "韓股" if is_kr else "台股"
+            if is_tw:
+                quote = self._try_fetcher_quote(stock_code, "FugleFetcher", **target_kwargs)
+                if quote is not None:
+                    logger.info(f"[实时行情] 台股 {stock_code} 成功获取 (来源: FugleFetcher)")
+                    return self._enrich_realtime_quote(
+                        quote,
+                        realtime_cache_ttl=getattr(config, "realtime_cache_ttl", None),
+                    )
             quote = self._try_fetcher_quote(stock_code, "YfinanceFetcher", **target_kwargs)
             if quote is not None:
                 logger.info(f"[实时行情] {market_label} {stock_code} 成功获取 (来源: YfinanceFetcher)")
