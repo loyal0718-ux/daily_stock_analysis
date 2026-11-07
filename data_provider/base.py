@@ -2499,7 +2499,7 @@ class DataFetcherManager:
         is_tw = (not is_us) and (not is_hk) and _is_tw_market(stock_code)
 
         if is_jp or is_kr or is_tw:
-            market_label = "日股" if is_jp else "韓股" if is_kr else "台股"
+            market_label = "日股" if is_jp else "韩股" if is_kr else "台股"
             if is_tw:
                 quote = self._try_fetcher_quote(stock_code, "FugleFetcher", **target_kwargs)
                 if quote is not None:
