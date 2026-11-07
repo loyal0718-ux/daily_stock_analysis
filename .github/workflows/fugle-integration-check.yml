@@ -1,0 +1,67 @@
+name: Fugle integration check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fugle-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Fugle is selected by the Taiwan quote router
+        env:
+          FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from data_provider.base import DataFetcherManager
+
+          if not os.environ.get("FUGLE_API_KEY", "").strip():
+              print("FAIL: FUGLE_API_KEY is unavailable.")
+              sys.exit(1)
+
+          manager = DataFetcherManager()
+          failed = 0
+
+          for symbol in ("2330.TW", "2344.TW"):
+              quote = manager.get_realtime_quote(symbol)
+              if quote is None:
+                  failed += 1
+                  print(f"FAIL {symbol}: no quote returned")
+                  continue
+
+              source = getattr(quote.source, "value", str(quote.source))
+              print(
+                  f"OK {symbol}: source={source}, name={quote.name}, "
+                  f"price={quote.price}, change_pct={quote.change_pct}, "
+                  f"provider_timestamp={quote.provider_timestamp}, "
+                  f"is_stale={quote.is_stale}"
+              )
+              if source != "fugle":
+                  failed += 1
+                  print(f"FAIL {symbol}: expected Fugle source, got {source}")
+
+          if failed:
+              print(f"Fugle integration check failed for {failed} symbol(s).")
+              sys.exit(1)
+
+          print("SUCCESS: Taiwan quote router selected Fugle for both symbols.")
+          PY
