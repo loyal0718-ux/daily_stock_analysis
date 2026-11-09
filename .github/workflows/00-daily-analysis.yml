@@ -425,7 +425,8 @@ jobs:
           # 自选股配置
           # ==========================================
           # 避免直接写入 STOCK_LIST，保留同名 Environment variables 的 runner 环境值。
-          STOCK_LIST_CONFIG: ${{ vars.STOCK_LIST || secrets.STOCK_LIST }}
+          # Use a dedicated key to avoid the legacy STOCK_LIST environment's two-symbol override.
+          STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '1303.TW,2408.TW,2603.TW,2409.TW,2344.TW,2454.TW,3231.TW,2330.TW,2881.TW' }}
           MARKET_REVIEW_REGION: ${{ vars.MARKET_REVIEW_REGION || secrets.MARKET_REVIEW_REGION || 'cn' }}
           MARKET_REVIEW_COLOR_SCHEME: ${{ vars.MARKET_REVIEW_COLOR_SCHEME || secrets.MARKET_REVIEW_COLOR_SCHEME || 'green_up' }}
           
@@ -572,6 +573,19 @@ jobs:
             logs/
           retention-days: 30
       
+      - name: 郵件通知工作流程失敗
+        if: failure()
+        env:
+          EMAIL_SENDER: ${{ vars.EMAIL_SENDER || secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS || secrets.EMAIL_RECEIVERS }}
+          EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || '台股儀表板' }}
+          FAILURE_WORKFLOW: ${{ github.workflow }}
+          FAILURE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAILURE_RUN_ID: ${{ github.run_id }}
+          FAILURE_RUN_NUMBER: ${{ github.run_number }}
+        run: python scripts/send_workflow_failure_notice.py
+
       - name: 显示运行结果
         if: always()
         run: |
