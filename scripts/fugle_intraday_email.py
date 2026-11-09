@@ -109,25 +109,6 @@ def main():
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if bot_token and chat_id:
-        # Identify the configured bot without exposing its token.
-        identity_request = Request(
-            f"https://api.telegram.org/bot{bot_token}/getMe",
-            headers={"Content-Type": "application/json"},
-            method="GET",
-        )
-        try:
-            with urlopen(identity_request, timeout=20) as response:
-                identity = json.loads(response.read().decode("utf-8"))
-            if not identity.get("ok"):
-                raise RuntimeError("Telegram getMe did not return ok=true")
-            bot = identity.get("result", {})
-            print(f"Telegram token identifies bot: @{bot.get('username', 'unknown')} (id={bot.get('id', 'unknown')})")
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Telegram getMe failed: HTTP {exc.code}; response={detail[:500]}") from exc
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Telegram getMe failed: {type(exc).__name__}: {exc}") from exc
-
         telegram_lines = [
             f"📊 {title}",
             f"產生時間：{now:%H:%M:%S}（台北）",
@@ -158,6 +139,28 @@ def main():
             if not result.get("ok"):
                 raise RuntimeError(f"Telegram API rejected message: {result}")
             print(f"Telegram push sent. symbols={len(rows)}, issues={len(failures)}")
+            # Identity lookup is diagnostic only: never let a transient getMe timeout
+            # prevent the actual message delivery.
+            identity_request = Request(
+                f"https://api.telegram.org/bot{bot_token}/getMe",
+                headers={"Content-Type": "application/json"},
+                method="GET",
+            )
+            identity_ok = False
+            for attempt in range(1, 4):
+                try:
+                    with urlopen(identity_request, timeout=10) as identity_response:
+                        identity = json.loads(identity_response.read().decode("utf-8"))
+                    if identity.get("ok"):
+                        bot = identity.get("result", {})
+                        print(f"Telegram token identifies bot: @{bot.get('username', 'unknown')} (id={bot.get('id', 'unknown')})")
+                        identity_ok = True
+                        break
+                    print(f"Telegram getMe diagnostic returned ok=false (attempt {attempt}/3).")
+                except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+                    print(f"Telegram getMe diagnostic unavailable (attempt {attempt}/3): {type(exc).__name__}")
+            if not identity_ok:
+                print("Telegram message delivery succeeded; bot identity lookup unavailable. Do not infer which duplicate bot was selected.")
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Telegram push failed: HTTP {exc.code}; response={detail[:500]}") from exc
