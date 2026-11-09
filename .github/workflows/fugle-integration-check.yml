@@ -28,7 +28,7 @@ jobs:
       - name: Verify watchlist configuration and Fugle quote routing for all nine stocks
         env:
           FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
-          STOCK_LIST_CONFIG: ${{ vars.STOCK_LIST || secrets.STOCK_LIST }}
+          STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '1303.TW,2408.TW,2603.TW,2409.TW,2344.TW,2454.TW,3231.TW,2330.TW,2881.TW' }}
         run: |
           if [ -n "${STOCK_LIST_CONFIG:-}" ]; then
             export STOCK_LIST="$STOCK_LIST_CONFIG"
