@@ -6,6 +6,9 @@ from zoneinfo import ZoneInfo
 import os
 import sys
 from pathlib import Path
+import json
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 # Allow direct execution as `python scripts/fugle_intraday_email.py` from repo root.
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -96,11 +99,51 @@ def main():
         lines.extend([f"- {item}" for item in failures])
     body = "\n".join(lines)
 
+    # Keep Gmail as a backup while Telegram becomes the phone push channel.
     sender = EmailSender(config)
     sent = sender.send_to_email(body, subject=title)
     if not sent:
         raise RuntimeError("SMTP email delivery failed")
-    print(f"Intraday email sent. symbols={len(rows)}, issues={len(failures)}")
+    print(f"Intraday backup email sent. symbols={len(rows)}, issues={len(failures)}")
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if bot_token and chat_id:
+        telegram_lines = [
+            f"📊 {title}",
+            f"產生時間：{now:%H:%M:%S}（台北）",
+            "行情快照｜非逐筆即時報價，請以下單畫面為準",
+            "",
+            "代號｜名稱｜價格｜漲跌幅｜行情時間",
+        ]
+        for code, name, price, change, ts, status in rows:
+            telegram_lines.append(f"{code}｜{name}｜{price}｜{change}｜{ts}｜{status}")
+        telegram_lines.extend(["", f"資料品質：{'全部通過' if not failures else f'{len(failures)} 檔需注意'}"])
+        if failures:
+            telegram_lines.extend(["異常：", *[f"• {item}" for item in failures]])
+        message = "\n".join(telegram_lines)
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": message,
+            "disable_web_page_preview": True,
+        }).encode("utf-8")
+        request = Request(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            if not result.get("ok"):
+                raise RuntimeError(f"Telegram API rejected message: {result}")
+            print(f"Telegram push sent. symbols={len(rows)}, issues={len(failures)}")
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Telegram push failed: {type(exc).__name__}: {exc}") from exc
+    else:
+        print("Telegram push skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured.")
+
     if failures:
         print("\n".join(failures))
         sys.exit(1)
