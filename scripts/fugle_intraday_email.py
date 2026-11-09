@@ -109,28 +109,28 @@ def main():
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if bot_token and chat_id:
-        # Identity lookup is diagnostic only: never let a transient getMe timeout
-            # prevent the actual message delivery.
+            # Identity lookup is best-effort; a temporary Telegram outage must not
+        # prevent the actual message from being sent.
         identity_request = Request(
             f"https://api.telegram.org/bot{bot_token}/getMe",
             headers={"Content-Type": "application/json"},
             method="GET",
-            )
+        )
         identity_ok = False
         for attempt in range(1, 4):
             try:
                 with urlopen(identity_request, timeout=10) as identity_response:
-                identity = json.loads(identity_response.read().decode("utf-8"))
+                    identity = json.loads(identity_response.read().decode("utf-8"))
                 if identity.get("ok"):
-                bot = identity.get("result", {})
-                print(f"Telegram token identifies bot: @{bot.get('username', 'unknown')} (id={bot.get('id', 'unknown')})")
-                identity_ok = True
-                break
+                    bot = identity.get("result", {})
+                    print(f"Telegram token identifies bot: @{bot.get('username', 'unknown')} (id={bot.get('id', 'unknown')})")
+                    identity_ok = True
+                    break
                 print(f"Telegram getMe diagnostic returned ok=false (attempt {attempt}/3).")
             except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
                 print(f"Telegram getMe diagnostic unavailable (attempt {attempt}/3): {type(exc).__name__}")
-            if not identity_ok:
-            print("Telegram message delivery succeeded; bot identity lookup unavailable. Do not infer which duplicate bot was selected.")
+        if not identity_ok:
+            print("Telegram identity lookup unavailable; proceeding to sendMessage.")
 
         telegram_lines = [
             f"📊 {title}",
