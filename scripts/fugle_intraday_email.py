@@ -132,6 +132,38 @@ def main():
         if not identity_ok:
             print("Telegram identity lookup unavailable; proceeding to sendMessage.")
 
+        # Safe chat-ID diagnostic: log only numeric chat IDs and chat types, never message text or tokens.
+        try:
+            webhook_req = Request(
+                f"https://api.telegram.org/bot{bot_token}/getWebhookInfo",
+                headers={"Content-Type": "application/json"}, method="GET",
+            )
+            with urlopen(webhook_req, timeout=10) as webhook_resp:
+                webhook_data = json.loads(webhook_resp.read().decode("utf-8"))
+            webhook_url = (webhook_data.get("result") or {}).get("url", "")
+            if webhook_url:
+                print("Telegram chat diagnostic: webhook is configured; getUpdates is unavailable while webhook is active.")
+            else:
+                updates_req = Request(
+                    f"https://api.telegram.org/bot{bot_token}/getUpdates?limit=20&allowed_updates=%5B%22message%22%5D",
+                    headers={"Content-Type": "application/json"}, method="GET",
+                )
+                with urlopen(updates_req, timeout=10) as updates_resp:
+                    updates_data = json.loads(updates_resp.read().decode("utf-8"))
+                seen_chats = {}
+                for update in updates_data.get("result", []):
+                    msg = update.get("message") or {}
+                    chat = msg.get("chat") or {}
+                    if chat.get("id") is not None:
+                        seen_chats[str(chat["id"])] = chat.get("type", "unknown")
+                if seen_chats:
+                    for diagnostic_chat_id, diagnostic_chat_type in seen_chats.items():
+                        print(f"Telegram incoming chat detected: chat_id={diagnostic_chat_id}, type={diagnostic_chat_type}")
+                else:
+                    print("Telegram chat diagnostic: no pending incoming message updates found.")
+        except Exception as diagnostic_exc:
+            print(f"Telegram chat diagnostic unavailable: {type(diagnostic_exc).__name__}")
+
         telegram_lines = [
             f"📊 {title}",
             f"產生時間：{now:%H:%M:%S}（台北）",
