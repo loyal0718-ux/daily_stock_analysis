@@ -40,6 +40,8 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS || secrets.EMAIL_RECEIVERS }}
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || '台股儀表板' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Dedicated name avoids the legacy STOCK_LIST environment override.
           STOCK_LIST: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '1303.TW,2408.TW,2603.TW,2409.TW,2344.TW,2454.TW,3231.TW,2330.TW,2881.TW' }}
         run: python scripts/fugle_intraday_email.py
