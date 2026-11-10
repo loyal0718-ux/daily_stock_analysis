@@ -59,3 +59,16 @@ The repository already contains a Taiwan-only TWSE T86 / TPEx OpenAPI fetcher. I
 A new fail-open guard now rejects a row if the official total differs from the three component net figures, rather than allowing contradictory numbers into the prompt. Regression tests cover a one-share discrepancy for both TWSE and TPEx. The raw figures are supplied to the Taiwan analysis prompt as context; they do not directly create a numeric score. The current prompt's directional descriptions are heuristic context only, not a deterministic buy/sell signal.
 
 The institutional fetcher only accepts explicit `.TW` / `.TWO` suffixes and checks the TPEx served date against an explicitly requested date. Missing fields, malformed values, date mismatch, and fetch errors fail open as unavailable rather than fabricated zero. This is the correct direction; remaining work is to confirm the live official response and ensure every report displays its source date and unit.
+
+## Persisted historical price-basis metadata
+
+The historical OHLC pipeline now attaches an explicit basis after normalization, cleaning, and indicator calculation:
+- AkShare daily history: `qfq` (the inspected A-share, ETF and HK endpoints explicitly request `adjust="qfq"`).
+- Yahoo Finance daily history: `auto_adjusted` (`yf.download(auto_adjust=True)`).
+- Tushare daily / fund_daily history: `raw` (the inspected endpoints return the daily price fields without applying `adj_factor`).
+
+`StockDaily.price_adjustment_basis` is nullable. The additive SQLite migration leaves all pre-existing rows NULL because their basis cannot safely be reconstructed. New writes persist DataFrame metadata; updates without basis metadata preserve an existing non-NULL basis. ORM `to_dict()` includes the basis so analysis reads it back from persisted rows.
+
+Realtime overlay now requires all persisted rows in the frame to agree on a known raw/unadjusted basis. Adjusted, mixed, or unknown history is rejected rather than comparing a raw realtime quote against incompatible historical prices. This is deliberately conservative; Taiwan daily history currently routes through Yahoo Finance and is tagged `auto_adjusted`, so Fugle raw intraday prices will not be merged into those daily bars until a verified adjustment-factor conversion is implemented.
+
+The schema migration and preservation behavior, YFinance basis tagging, and adjusted/unknown realtime rejection have regression tests. The latest complete CI run before these changes still failed in backend shard 1 on four unrelated tests (one missing Chat session table in a test DB and three AkShare HTTP-boundary tests); two other backend shards and Docker build passed. The new storage/basis tests are awaiting the latest CI run.
