@@ -54,6 +54,22 @@ def test_provider_previous_close_must_match_last_daily_candle():
             "is_stale": False,
         },
         reference_close=100.0,
+        reference_close_is_unadjusted=True,
     )
     assert result["status"] == "warning"
     assert "previous_close_mismatch" in result["issues"]
+
+
+def test_adjusted_daily_close_is_not_compared_to_raw_provider_previous_close():
+    result = validate_realtime_quote(
+        {
+            "price": 105.0,
+            "pre_close": 100.0,
+            "change_amount": 5.0,
+            "change_pct": 5.0,
+            "is_stale": False,
+        },
+        reference_close=98.0,
+    )
+    assert result["status"] == "pass"
+    assert "previous_close_mismatch" not in result["issues"]
