@@ -689,6 +689,8 @@ class StockTrendAnalyzer:
             VolumeStatus.SHRINK_VOLUME_DOWN: 15,  # 缩量回调最佳
             VolumeStatus.HEAVY_VOLUME_UP: 12,     # 放量上涨次之
             VolumeStatus.NORMAL: 10,
+            VolumeStatus.INTRADAY_UNCONFIRMED: 8,  # 量能未知，不加分不扣分
+            VolumeStatus.UNAVAILABLE: 8,           # 量能缺值，採中性分
             VolumeStatus.SHRINK_VOLUME_UP: 6,     # 无量上涨较差
             VolumeStatus.HEAVY_VOLUME_DOWN: 0,    # 放量下跌最差
         }
@@ -696,7 +698,7 @@ class StockTrendAnalyzer:
         score += vol_score
 
         if result.volume_status == VolumeStatus.SHRINK_VOLUME_DOWN:
-            reasons.append("✅ 缩量回调，主力洗盘")
+            reasons.append("缩量回调：成交活跃度下降，尚不能据此认定主力洗盘")
         elif result.volume_status == VolumeStatus.HEAVY_VOLUME_DOWN:
             risks.append("⚠️ 放量下跌，注意风险")
 
