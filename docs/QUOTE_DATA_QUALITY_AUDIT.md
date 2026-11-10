@@ -33,3 +33,9 @@ The pipeline attaches the result to the analysis context. The LLM prompt instruc
 - The previous `縮量回調 = 主力洗盤` wording was too strong: volume/price alone cannot identify institutional intent. The wording now describes only lower trading activity.
 - Tushare's legacy `get_realtime_quotes` documents `volume` as shares (the documentation says divide by 100 only to express lots). The adapter incorrectly divided by 100 even though the unified quote contract is shares; this has been corrected and a regression test added.
 - Tushare Pro's documented `rt_k` endpoint reports volume in shares, but the current adapter calls `quotation`, which is not the documented `rt_k` method. Its exact payload contract must be verified before treating that branch as trusted. We do not switch to the documented paid real-time endpoint as part of this free-first patch.
+
+## Adjustment-basis safety
+
+Historical daily data is not guaranteed to share one price-adjustment basis: AkShare requests `adjust="qfq"` and yfinance uses `auto_adjust=True`, while realtime provider quotes are raw market prices. Comparing raw `pre_close` to an adjusted daily close can create false mismatches on ex-dividend / corporate-action dates; mixing a raw intraday price into an adjusted historical series can also distort moving averages.
+
+The integrity validator therefore compares a historical reference close only when the caller explicitly guarantees it is unadjusted. The intraday K-line overlay now requires `df.attrs["price_adjustment_basis"]` to be explicitly `raw`, `none`, or `unadjusted`; otherwise it skips the overlay. The current DB-loaded frame does not yet consistently expose this metadata, so intraday MA overlay may be skipped until the history ingestion/storage layer records adjustment basis. This is intentionally conservative.
