@@ -2762,13 +2762,27 @@ class StockAnalysisPipeline:
             return df
         if realtime_quote is None:
             return df
-        adjustment_basis = str(
-            getattr(df, "attrs", {}).get("price_adjustment_basis", "")
-        ).strip().lower()
+        # Prefer the persisted per-row basis: ORM-loaded history does not
+        # preserve pandas attrs. Mixed or absent basis is intentionally rejected.
+        adjustment_basis = ""
+        if "price_adjustment_basis" in df.columns:
+            bases = {
+                str(value).strip().lower()
+                for value in df["price_adjustment_basis"].dropna().tolist()
+                if str(value).strip()
+            }
+            adjustment_basis = next(iter(bases)) if len(bases) == 1 else (
+                "mixed" if len(bases) > 1 else ""
+            )
+        if not adjustment_basis:
+            adjustment_basis = str(
+                getattr(df, "attrs", {}).get("price_adjustment_basis", "")
+            ).strip().lower()
         if adjustment_basis not in {"raw", "none", "unadjusted"}:
             logger.warning(
-                "[行情品質] %s 歷史K線未標示價格復權口徑，略過即時價格覆蓋，避免將未復權即時價混入復權日K",
+                "[行情品質] %s 歷史K線復權口徑=%s，非已確認原始價，略過即時價格覆蓋",
                 code,
+                adjustment_basis or "unknown",
             )
             return df
         # Resolve the market date before choosing the comparison close. If the
