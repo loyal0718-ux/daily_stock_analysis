@@ -1148,6 +1148,9 @@ class StockAnalysisPipeline:
                     'data_source': f"realtime:{source_name}",
                     'realtime_source': source_name,
                     'is_estimated': True,
+                    # Realtime quote is an in-progress bar unless a caller explicitly
+                    # supplies a finalized market-phase state.
+                    'is_partial_bar': True,
                 }
                 estimated_fields = [
                     'close', 'open', 'high', 'low', 'ma5', 'ma10', 'ma20',
