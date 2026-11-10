@@ -461,7 +461,7 @@ class StockTrendAnalyzer:
                 result.volume_trend = "缩量上涨，上攻动能不足"
             else:
                 result.volume_status = VolumeStatus.SHRINK_VOLUME_DOWN
-                result.volume_trend = "缩量回调，洗盘特征明显（好）"
+                result.volume_trend = "縮量回調，成交活躍度下降；不能單憑量價推定主力洗盤"
         else:
             result.volume_status = VolumeStatus.NORMAL
             result.volume_trend = "量能正常"
