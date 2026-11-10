@@ -2766,14 +2766,14 @@ class StockAnalysisPipeline:
         # preserve pandas attrs. Mixed or absent basis is intentionally rejected.
         adjustment_basis = ""
         if "price_adjustment_basis" in df.columns:
-            bases = {
-                str(value).strip().lower()
-                for value in df["price_adjustment_basis"].dropna().tolist()
-                if str(value).strip()
-            }
-            adjustment_basis = next(iter(bases)) if len(bases) == 1 else (
-                "mixed" if len(bases) > 1 else ""
-            )
+            basis_values = [
+                str(value).strip().lower() if pd.notna(value) else ""
+                for value in df["price_adjustment_basis"].tolist()
+            ]
+            if basis_values and all(basis_values) and len(set(basis_values)) == 1:
+                adjustment_basis = basis_values[0]
+            elif any(basis_values):
+                adjustment_basis = "mixed_or_incomplete"
         if not adjustment_basis:
             adjustment_basis = str(
                 getattr(df, "attrs", {}).get("price_adjustment_basis", "")
