@@ -39,3 +39,15 @@ The pipeline attaches the result to the analysis context. The LLM prompt instruc
 Historical daily data is not guaranteed to share one price-adjustment basis: AkShare requests `adjust="qfq"` and yfinance uses `auto_adjust=True`, while realtime provider quotes are raw market prices. Comparing raw `pre_close` to an adjusted daily close can create false mismatches on ex-dividend / corporate-action dates; mixing a raw intraday price into an adjusted historical series can also distort moving averages.
 
 The integrity validator therefore compares a historical reference close only when the caller explicitly guarantees it is unadjusted. The intraday K-line overlay now requires `df.attrs["price_adjustment_basis"]` to be explicitly `raw`, `none`, or `unadjusted`; otherwise it skips the overlay. The current DB-loaded frame does not yet consistently expose this metadata, so intraday MA overlay may be skipped until the history ingestion/storage layer records adjustment basis. This is intentionally conservative.
+
+## CI follow-up (2026-11-10)
+
+The first complete CI run after introducing the raw-price-basis guard completed syntax, lint, deterministic checks, AI governance, and Docker build successfully. Backend shards 1 and 2 failed on a mix of existing unrelated failures and integration tests that still encoded the pre-guard realtime-overlay behavior; shard 3 passed.
+
+The integration failures exposed two real contract details:
+- When the historical frame already contains today's partial bar, the correct comparison close is the prior completed candle (`df.iloc[-2]`), not today's partial close.
+- Realtime-augmented rows must be marked `data_source=realtime:<provider>` and `is_partial_bar=true`; otherwise downstream volume analysis can mistake a partial cumulative volume for a completed daily bar.
+
+Both are now corrected. Test fixtures now explicitly declare raw/unadjusted history and internally consistent provider previous-close / change / percent / freshness metadata. These follow-up commits have not yet been covered by a new completed CI run.
+
+The realtime overlay intentionally remains disabled for production history frames until the ingestion layer supplies verified `price_adjustment_basis` metadata. This prevents accidental mixing of qfq/auto-adjusted history with raw provider quotes.
