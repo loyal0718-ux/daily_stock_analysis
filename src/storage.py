@@ -143,6 +143,10 @@ class StockDaily(Base):
     # 普通索引（非唯一）：历史别名行可能共享同一 canonical_id + date，唯一索引会撞。
     canonical_id = Column(String(32), nullable=True)
 
+    # Price basis is essential for safely comparing historical candles with raw
+    # realtime quotes. NULL means unknown and must never be treated as raw.
+    price_adjustment_basis = Column(String(16), nullable=True)
+
     # 更新时间
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -176,6 +180,7 @@ class StockDaily(Base):
             'volume_ratio': self.volume_ratio,
             'data_source': self.data_source,
             'canonical_id': self.canonical_id,
+            'price_adjustment_basis': self.price_adjustment_basis,
         }
 
 
@@ -1404,6 +1409,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._ensure_llm_usage_telemetry_columns()
             self._ensure_decision_signal_profile_schema()
             self._ensure_stock_daily_canonical_id()
+            self._ensure_stock_daily_price_adjustment_basis()
             self._ensure_intelligence_item_scope_values()
             self._ensure_schema_migration_record()
             self._ensure_intelligence_items_unique_index()
@@ -1725,6 +1731,38 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             stats["invalid_profile_count"],
             stats["skipped_existing_profile_count"],
         )
+
+    def _ensure_stock_daily_price_adjustment_basis(self) -> None:
+        """Add nullable price-basis metadata; legacy rows stay unknown (fail-closed)."""
+        if not self._is_sqlite_engine:
+            return
+        inspector = inspect(self._engine)
+        if not inspector.has_table(StockDaily.__tablename__):
+            return
+        existing = {
+            column["name"]
+            for column in inspector.get_columns(StockDaily.__tablename__)
+        }
+        if "price_adjustment_basis" not in existing:
+            try:
+                with self._engine.begin() as connection:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {StockDaily.__tablename__} "
+                        "ADD COLUMN price_adjustment_basis VARCHAR(16)"
+                    )
+            except OperationalError as exc:
+                if not self._is_sqlite_duplicate_column_error(
+                    exc, "price_adjustment_basis"
+                ):
+                    raise
+        verified = {
+            column["name"]
+            for column in inspect(self._engine).get_columns(StockDaily.__tablename__)
+        }
+        if "price_adjustment_basis" not in verified:
+            raise RuntimeError(
+                "stock_daily price_adjustment_basis migration verification failed"
+            )
 
     def _ensure_stock_daily_canonical_id(self) -> None:
         """Self-healing migration: add + backfill the ``canonical_id`` column.
@@ -3481,6 +3519,12 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 'volume_ratio': self._normalize_sql_value(row.get('volume_ratio')),
                 'data_source': data_source,
                 'canonical_id': canonical_id,
+                'price_adjustment_basis': (
+                    str(df.attrs.get("price_adjustment_basis")).strip().lower()
+                    if df.attrs.get("price_adjustment_basis") in {
+                        "raw", "adjusted", "qfq", "hfq", "unknown"
+                    } else None
+                ),
                 'created_at': now,
                 'updated_at': now,
             }
@@ -3538,6 +3582,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                                 'ma20': excluded.ma20,
                                 'volume_ratio': excluded.volume_ratio,
                                 'data_source': excluded.data_source,
+                                'price_adjustment_basis': excluded.price_adjustment_basis,
                                 # D1 degrade: never overwrite a previously
                                 # backfilled non-NULL canonical_id with NULL.
                                 'canonical_id': func.coalesce(
@@ -3580,6 +3625,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                     existing.ma20 = record['ma20']
                     existing.volume_ratio = record['volume_ratio']
                     existing.data_source = record['data_source']
+                    existing.price_adjustment_basis = record['price_adjustment_basis']
                     if record['canonical_id'] is not None:
                         existing.canonical_id = record['canonical_id']
                     existing.updated_at = record['updated_at']
