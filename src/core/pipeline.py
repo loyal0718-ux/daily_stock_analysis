@@ -2836,7 +2836,13 @@ class StockAnalysisPipeline:
             if amt is not None:
                 df.loc[idx, 'amount'] = amt
             if pct is not None:
-                df.loc[idx, 'pct_chg'] = pct
+                # Historical fixtures/providers may infer pct_chg as int64 when all
+                # prior values are whole numbers. Promote before writing a fractional
+                # realtime percentage to avoid pandas LossySetitemError.
+                df['pct_chg'] = pd.to_numeric(
+                    df['pct_chg'], errors='coerce'
+                ).astype(float)
+                df.loc[idx, 'pct_chg'] = float(pct)
             source = getattr(realtime_quote, 'source', None)
             source_name = getattr(source, 'value', source) or "unknown"
             df.loc[idx, 'data_source'] = f"realtime:{source_name}"
