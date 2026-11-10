@@ -33,25 +33,26 @@ def _make_realtime_quote(
     change_pct: float = 0.96,
     **overrides,
 ) -> UnifiedRealtimeQuote:
-    return UnifiedRealtimeQuote(
-        code="600519",
-        name="贵州茅台",
-        source=RealtimeSource.TENCENT,
-        price=price,
-        open_price=open_price,
-        high=high,
-        low=low,
-        volume=volume,
-        amount=amount,
-        change_pct=change_pct,
-        pre_close=price / (1.0 + change_pct / 100.0) if change_pct > -100 else None,
-        change_amount=(
-            price - price / (1.0 + change_pct / 100.0)
-            if change_pct > -100 else None
-        ),
-        is_stale=False,
-        **overrides,
+    default_pre_close = (
+        price / (1.0 + change_pct / 100.0) if change_pct > -100 else None
     )
+    quote_fields = {
+        "code": "600519",
+        "name": "贵州茅台",
+        "source": RealtimeSource.TENCENT,
+        "price": price,
+        "open_price": open_price,
+        "high": high,
+        "low": low,
+        "volume": volume,
+        "amount": amount,
+        "change_pct": change_pct,
+        "pre_close": default_pre_close,
+        "change_amount": price - default_pre_close if default_pre_close else None,
+        "is_stale": False,
+    }
+    quote_fields.update(overrides)
+    return UnifiedRealtimeQuote(**quote_fields)
 
 
 def _make_historical_df(days: int = 25, last_date: date = None) -> pd.DataFrame:
