@@ -360,6 +360,8 @@ class BaseFetcher(ABC):
     name: str = "BaseFetcher"
     priority: int = 99  # 优先级数字越小越优先
     allow_empty_daily_data: bool = False
+    # Explicit OHLC price basis for daily history. Unknown is deliberately fail-closed.
+    price_adjustment_basis: str = "unknown"
     
     @abstractmethod
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -526,6 +528,9 @@ class BaseFetcher(ABC):
             
             # Step 4: 计算技术指标
             df = self._calculate_indicators(df)
+            # DataFrame.attrs may be lost when frames are rebuilt; set it only
+            # after normalization, cleaning and indicator calculation are complete.
+            df.attrs["price_adjustment_basis"] = self.price_adjustment_basis
 
             elapsed = time.time() - request_start
             logger.info(
