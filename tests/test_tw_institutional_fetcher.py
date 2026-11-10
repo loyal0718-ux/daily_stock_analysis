@@ -212,11 +212,14 @@ class TestMissingFieldAndEmptyCacheFailOpen(unittest.TestCase):
         import copy
         row = copy.deepcopy(TPEX_FIXTURE[0])
         row["SecuritiesInvestmentTrustCompanies-Difference"] = "0"  # 投信 truly net-zero today
+        # Keep the official total consistent with foreign + trust + dealer.
+        row["TotalDifference"] = "-1480727"
         with patch("data_provider.tw_institutional_fetcher.requests.get", return_value=_resp([row])):
             rec = _fetcher().get_institutional_net("3105.TWO")
         self.assertIsNotNone(rec)
         self.assertEqual(rec["trust_net"], 0)       # genuine 0 preserved
         self.assertEqual(rec["foreign_net"], -982953)
+        self.assertEqual(rec["total_net"], -1480727)
 
     def test_twse_missing_core_field_drops_row(self):
         import copy
