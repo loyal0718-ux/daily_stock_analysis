@@ -30,6 +30,7 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import is_bse_code, normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
+from src.core.quote_integrity import validate_realtime_quote
 from src.analyzer import (
     GeminiAnalyzer,
     AnalysisResult,
@@ -1042,6 +1043,14 @@ class StockAnalysisPipeline:
         
         # 添加实时行情（兼容不同数据源的字段差异）
         if realtime_quote:
+            reference_close = None
+            yesterday = enhanced.get("yesterday")
+            if isinstance(yesterday, dict):
+                reference_close = yesterday.get("close")
+            quote_integrity = validate_realtime_quote(
+                realtime_quote, reference_close=reference_close
+            )
+            enhanced["quote_integrity"] = quote_integrity
             # 使用 getattr 安全获取字段，缺失字段返回 None 或默认值
             volume_ratio = getattr(realtime_quote, 'volume_ratio', None)
             quote_source = getattr(realtime_quote, 'source', None)
