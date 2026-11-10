@@ -106,6 +106,22 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
             self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
+    def test_adjusted_persisted_history_rejects_raw_realtime_overlay(self) -> None:
+        df = _make_historical_df()
+        df["price_adjustment_basis"] = "qfq"
+        quote = _make_realtime_quote()
+        result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
+        self.assertEqual(len(result), len(df))
+        self.assertEqual(result.iloc[-1]["close"], df.iloc[-1]["close"])
+
+    def test_mixed_or_unknown_persisted_history_rejects_realtime_overlay(self) -> None:
+        df = _make_historical_df()
+        df["price_adjustment_basis"] = ["raw"] * (len(df) - 1) + [None]
+        quote = _make_realtime_quote()
+        result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
+        self.assertEqual(len(result), len(df))
+        self.assertEqual(result.iloc[-1]["close"], df.iloc[-1]["close"])
+
     def test_returns_unchanged_when_realtime_none(self) -> None:
         df = _make_historical_df()
         result = self.pipeline._augment_historical_with_realtime(df, None, "600519")
