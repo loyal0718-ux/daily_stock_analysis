@@ -2759,13 +2759,23 @@ class StockAnalysisPipeline:
             return df
         if realtime_quote is None:
             return df
+        adjustment_basis = str(
+            getattr(df, "attrs", {}).get("price_adjustment_basis", "")
+        ).strip().lower()
+        if adjustment_basis not in {"raw", "none", "unadjusted"}:
+            logger.warning(
+                "[行情品質] %s 歷史K線未標示價格復權口徑，略過即時價格覆蓋，避免將未復權即時價混入復權日K",
+                code,
+            )
+            return df
         reference_close = None
         try:
             reference_close = float(df.iloc[-1]['close'])
         except (TypeError, ValueError, KeyError, IndexError):
             reference_close = None
         quote_integrity = validate_realtime_quote(
-            realtime_quote, reference_close=reference_close
+            realtime_quote, reference_close=reference_close,
+            reference_close_is_unadjusted=True,
         )
         if quote_integrity.get("status") != "pass" or quote_integrity.get("freshness") != "fresh":
             logger.warning(
