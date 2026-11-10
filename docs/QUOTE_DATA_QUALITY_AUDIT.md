@@ -26,3 +26,10 @@ The pipeline attaches the result to the analysis context. The LLM prompt instruc
 - Regression tests added for Fugle volume normalization and quote-integrity checks.
 - GitHub Actions run on the initial PR commit reported 2,883 passed, 4 failed, and 1 cancelled shard. The observed failures were in unrelated agent-session database migration and live AkShare capital-flow adapter tests. The new regression tests were added after that run and have not yet been confirmed by CI.
 - Do not merge until the latest branch head has a passing targeted test run and the remaining CI failures are understood.
+
+## Additional findings: intraday volume and Tushare legacy adapter
+
+- The trend analyzer previously compared a partial intraday cumulative volume with five completed daily bars. It now marks this volume as `INTRADAY_UNCONFIRMED`, leaves the ratio as `None`, and does not call it shrink/heavy volume. Missing volume is also `UNAVAILABLE`, not zero.
+- The previous `縮量回調 = 主力洗盤` wording was too strong: volume/price alone cannot identify institutional intent. The wording now describes only lower trading activity.
+- Tushare's legacy `get_realtime_quotes` documents `volume` as shares (the documentation says divide by 100 only to express lots). The adapter incorrectly divided by 100 even though the unified quote contract is shares; this has been corrected and a regression test added.
+- Tushare Pro's documented `rt_k` endpoint reports volume in shares, but the current adapter calls `quotation`, which is not the documented `rt_k` method. Its exact payload contract must be verified before treating that branch as trusted. We do not switch to the documented paid real-time endpoint as part of this free-first patch.
