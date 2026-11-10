@@ -794,7 +794,7 @@ class TushareFetcher(BaseFetcher):
                 price=price,
                 change_pct=round(change_pct, 2),
                 change_amount=round(change_amount, 2),
-                volume=safe_int(row['volume']) // 100,  # 转换为手
+                volume=safe_int(row['volume']),  # legacy get_realtime_quotes returns shares; unified contract is shares
                 amount=safe_float(row['amount']),
                 high=safe_float(row['high']),
                 low=safe_float(row['low']),
