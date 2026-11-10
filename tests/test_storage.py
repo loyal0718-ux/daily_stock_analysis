@@ -1304,6 +1304,14 @@ class TestStorage(unittest.TestCase):
                 }
 
             self.assertIn("canonical_id", columns)
+            self.assertIn("price_adjustment_basis", columns)
+            # Legacy rows are intentionally unknown; never infer a basis from
+            # provider names or historical prices after the fact.
+            with sqlite3.connect(db_path) as conn:
+                legacy_basis = conn.execute(
+                    "SELECT price_adjustment_basis FROM stock_daily WHERE code='600519'"
+                ).fetchone()[0]
+            self.assertIsNone(legacy_basis)
             # sh000300 is a registered index alias → sh000300
             self.assertEqual(rows["sh000300"], "sh000300")
             # 600519 bare A-share → sh600519 (contract: bare codes default stock,
