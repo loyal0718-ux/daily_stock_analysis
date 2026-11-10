@@ -1107,7 +1107,12 @@ class StockAnalysisPipeline:
 
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
         # 防护条件：trend_result.ma5 > 0 表示 MA 计算已成功且数据量充足。
-        if realtime_quote and trend_result and trend_result.ma5 > 0:
+        quote_integrity = enhanced.get("quote_integrity") or {}
+        quote_is_trusted = (
+            quote_integrity.get("status") == "pass"
+            and quote_integrity.get("freshness") == "fresh"
+        )
+        if realtime_quote and quote_is_trusted and trend_result and trend_result.ma5 > 0:
             price = getattr(realtime_quote, 'price', None)
             if price is not None and price > 0:
                 yesterday_close = None
@@ -2753,6 +2758,21 @@ class StockAnalysisPipeline:
         if df is None or df.empty or 'close' not in df.columns:
             return df
         if realtime_quote is None:
+            return df
+        reference_close = None
+        try:
+            reference_close = float(df.iloc[-1]['close'])
+        except (TypeError, ValueError, KeyError, IndexError):
+            reference_close = None
+        quote_integrity = validate_realtime_quote(
+            realtime_quote, reference_close=reference_close
+        )
+        if quote_integrity.get("status") != "pass" or quote_integrity.get("freshness") != "fresh":
+            logger.warning(
+                "[行情品質] %s 即時報價未通過完整性檢查，略過即時 K 線覆蓋：%s",
+                code,
+                quote_integrity.get("issues") or quote_integrity.get("freshness"),
+            )
             return df
         price = getattr(realtime_quote, 'price', None)
         if price is None or not (isinstance(price, (int, float)) and price > 0):
