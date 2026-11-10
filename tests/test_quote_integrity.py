@@ -42,3 +42,18 @@ def test_stale_quote_is_explicitly_flagged():
     assert result["freshness"] == "stale"
     assert result["status"] == "warning"
     assert "provider_quote_flagged_stale" in result["issues"]
+
+
+def test_provider_previous_close_must_match_last_daily_candle():
+    result = validate_realtime_quote(
+        {
+            "price": 105.0,
+            "pre_close": 99.0,
+            "change_amount": 6.0,
+            "change_pct": 6.06,
+            "is_stale": False,
+        },
+        reference_close=100.0,
+    )
+    assert result["status"] == "warning"
+    assert "previous_close_mismatch" in result["issues"]
