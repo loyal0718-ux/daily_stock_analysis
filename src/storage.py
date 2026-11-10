@@ -3522,7 +3522,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 'price_adjustment_basis': (
                     str(df.attrs.get("price_adjustment_basis")).strip().lower()
                     if df.attrs.get("price_adjustment_basis") in {
-                        "raw", "adjusted", "qfq", "hfq", "unknown"
+                        "raw", "adjusted", "qfq", "hfq", "auto_adjusted", "unknown"
                     } else None
                 ),
                 'created_at': now,
