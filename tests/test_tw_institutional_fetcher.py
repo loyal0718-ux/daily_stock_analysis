@@ -136,6 +136,14 @@ class TestT86Parsing(unittest.TestCase):
         with patch("data_provider.tw_institutional_fetcher.requests.get", return_value=_resp({"stat": "OK", "data": []})):
             self.assertIsNone(_fetcher().get_institutional_net("2330.TW"))
 
+    def test_twse_total_mismatch_fails_open(self):
+        import copy
+        fix = copy.deepcopy(T86_FIXTURE)
+        total_idx = fix["fields"].index("三大法人買賣超股數")
+        fix["data"][0][total_idx] = "-12,537,388"  # official total differs by one share
+        with patch("data_provider.tw_institutional_fetcher.requests.get", return_value=_resp(fix)):
+            self.assertIsNone(_fetcher().get_institutional_net("2330.TW", "20260626"))
+
 
 class TestTpexParsing(unittest.TestCase):
     def test_tpex_3105_net_breakdown_and_minguo_date(self):
@@ -155,6 +163,13 @@ class TestTpexParsing(unittest.TestCase):
     def test_tpex_non_list_fails_open(self):
         with patch("data_provider.tw_institutional_fetcher.requests.get", return_value=_resp({})):
             self.assertIsNone(_fetcher().get_institutional_net("6488.TWO"))
+
+    def test_tpex_total_mismatch_fails_open(self):
+        import copy
+        row = copy.deepcopy(TPEX_FIXTURE[0])
+        row["TotalDifference"] = "-4374989"  # official total differs by one share
+        with patch("data_provider.tw_institutional_fetcher.requests.get", return_value=_resp([row])):
+            self.assertIsNone(_fetcher().get_institutional_net("3105.TWO"))
 
 
 class TestRoutingAndFailOpen(unittest.TestCase):
