@@ -1161,6 +1161,36 @@ class TestStorage(unittest.TestCase):
             temp_dir.cleanup()
             DatabaseManager.reset_instance()
 
+    def test_daily_price_basis_is_persisted_and_not_erased_by_missing_metadata(self):
+        DatabaseManager.reset_instance()
+        db = DatabaseManager(db_url="sqlite:///:memory:")
+        frame = pd.DataFrame([{
+            "date": date(2026, 4, 2),
+            "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5,
+            "volume": 100, "amount": 1050, "pct_chg": 1.0,
+        }])
+        frame.attrs["price_adjustment_basis"] = "qfq"
+        try:
+            db.save_daily_data(frame, code="600519", data_source="AkshareFetcher")
+            # A later update from a caller without basis metadata must not erase
+            # a previously verified basis and turn the row into an unknown basis.
+            update = frame.copy()
+            update.attrs = {}
+            update.loc[0, "close"] = 10.6
+            db.save_daily_data(update, code="600519", data_source="AkshareFetcher")
+            with db.get_session() as session:
+                row = session.execute(
+                    select(StockDaily).where(
+                        StockDaily.code == "600519",
+                        StockDaily.date == date(2026, 4, 2),
+                    )
+                ).scalar_one()
+            self.assertEqual(row.price_adjustment_basis, "qfq")
+            self.assertEqual(row.close, 10.6)
+            self.assertEqual(row.to_dict()["price_adjustment_basis"], "qfq")
+        finally:
+            DatabaseManager.reset_instance()
+
     # ------------------------------------------------------------------
     # Story 1.2 — canonical_id column + dual-write (issue #2207 PR2)
     # ------------------------------------------------------------------
