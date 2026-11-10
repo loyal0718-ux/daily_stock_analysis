@@ -21,11 +21,13 @@ def _number(value: Any):
         return None
 
 
-def validate_realtime_quote(quote: Any, reference_close: Any = None) -> dict:
+def validate_realtime_quote(quote: Any, reference_close: Any = None, *, reference_close_is_unadjusted: bool = False) -> dict:
     """Check quote arithmetic and OHLC consistency without rewriting provider data."""
     price = _number(_get(quote, "price"))
     provider_previous_close = _number(_get(quote, "pre_close"))
-    daily_reference_close = _number(reference_close)
+    # Historical bars may be adjusted (qfq / auto_adjust) while provider previous_close is raw.
+    # Only compare/fallback when the caller explicitly guarantees an unadjusted daily close.
+    daily_reference_close = _number(reference_close) if reference_close_is_unadjusted else None
     if (
         provider_previous_close is not None
         and daily_reference_close is not None
