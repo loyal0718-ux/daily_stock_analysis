@@ -2768,9 +2768,28 @@ class StockAnalysisPipeline:
                 code,
             )
             return df
+        # Resolve the market date before choosing the comparison close. If the
+        # history frame already contains today's partial bar, the prior completed
+        # candle is the previous close; otherwise the last row is the previous close.
+        enable_realtime_tech = getattr(
+            self.config, 'enable_realtime_technical_indicators', True
+        )
+        if not enable_realtime_tech:
+            return df
+        if market is None:
+            market = get_market_for_stock(code)
+        market_today = get_market_now(market).date()
+        if market and not is_market_open(market, market_today):
+            return df
+        last_val = df['date'].max()
+        last_date = (
+            last_val.date() if hasattr(last_val, 'date') else
+            (last_val if isinstance(last_val, date) else pd.Timestamp(last_val).date())
+        )
+        previous_bar_index = -2 if last_date >= market_today and len(df) >= 2 else -1
         reference_close = None
         try:
-            reference_close = float(df.iloc[-1]['close'])
+            reference_close = float(df.iloc[previous_bar_index]['close'])
         except (TypeError, ValueError, KeyError, IndexError):
             reference_close = None
         quote_integrity = validate_realtime_quote(
@@ -2788,24 +2807,7 @@ class StockAnalysisPipeline:
         if price is None or not (isinstance(price, (int, float)) and price > 0):
             return df
 
-        # 非交易日可跳过实时补齐；异常情况下保持失败开放。
-        enable_realtime_tech = getattr(
-            self.config, 'enable_realtime_technical_indicators', True
-        )
-        if not enable_realtime_tech:
-            return df
-        if market is None:
-            market = get_market_for_stock(code)
-        market_today = get_market_now(market).date()
-        if market and not is_market_open(market, market_today):
-            return df
-
-        last_val = df['date'].max()
-        last_date = (
-            last_val.date() if hasattr(last_val, 'date') else
-            (last_val if isinstance(last_val, date) else pd.Timestamp(last_val).date())
-        )
-        yesterday_close = float(df.iloc[-1]['close']) if len(df) > 0 else price
+        yesterday_close = reference_close if reference_close is not None else price
         open_p = getattr(realtime_quote, 'open_price', None) or getattr(
             realtime_quote, 'pre_close', None
         ) or yesterday_close
@@ -2832,8 +2834,14 @@ class StockAnalysisPipeline:
                 df.loc[idx, 'amount'] = amt
             if pct is not None:
                 df.loc[idx, 'pct_chg'] = pct
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
+            df.loc[idx, 'data_source'] = f"realtime:{source_name}"
+            df.loc[idx, 'is_partial_bar'] = True
         else:
-            # 追加一行虚拟的当日实时 K 线。
+            # 追加一行虚擬的當日即時K線，明確標示未完成日K。
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
             new_row = {
                 'code': code,
                 'date': market_today,
@@ -2844,6 +2852,8 @@ class StockAnalysisPipeline:
                 'volume': vol,
                 'amount': amt if amt is not None else 0,
                 'pct_chg': pct if pct is not None else 0,
+                'data_source': f"realtime:{source_name}",
+                'is_partial_bar': True,
             }
             new_df = pd.DataFrame([new_row])
             df = pd.concat([df, new_df], ignore_index=True)
