@@ -107,7 +107,11 @@ class FugleFetcher(BaseFetcher):
             or last_trade.get("time")
             or data.get("closeTime")
         )
-        volume = self._number(total.get("tradeVolume"))
+        # Fugle equity quote total.tradeVolume is reported in lots (張),
+        # while UnifiedRealtimeQuote.volume and historical daily bars use shares (股).
+        # Convert at the provider boundary so downstream indicators use one unit.
+        volume_lots = self._number(total.get("tradeVolume"))
+        volume_shares = int(volume_lots * 1000) if volume_lots is not None else None
         amount = self._number(total.get("tradeValue"))
 
         return UnifiedRealtimeQuote(
@@ -121,7 +125,7 @@ class FugleFetcher(BaseFetcher):
             price=price,
             change_pct=self._number(data.get("changePercent")),
             change_amount=self._number(data.get("change")),
-            volume=int(volume) if volume is not None else None,
+            volume=volume_shares,
             amount=amount,
             amplitude=self._number(data.get("amplitude")),
             open_price=self._number(data.get("openPrice")),
