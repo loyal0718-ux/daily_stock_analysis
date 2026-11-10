@@ -74,6 +74,7 @@ class YfinanceFetcher(BaseFetcher):
     """
 
     name = "YfinanceFetcher"
+    price_adjustment_basis = "auto_adjusted"
     priority = int(os.getenv("YFINANCE_PRIORITY", "4"))
 
     def __init__(self):
