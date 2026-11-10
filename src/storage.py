@@ -1764,6 +1764,38 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 "stock_daily price_adjustment_basis migration verification failed"
             )
 
+    def _ensure_stock_daily_price_adjustment_basis(self) -> None:
+        """Add nullable price-basis metadata; legacy rows remain unknown."""
+        if not self._is_sqlite_engine:
+            return
+        inspector = inspect(self._engine)
+        if not inspector.has_table(StockDaily.__tablename__):
+            return
+        existing = {
+            column["name"]
+            for column in inspector.get_columns(StockDaily.__tablename__)
+        }
+        if "price_adjustment_basis" not in existing:
+            try:
+                with self._engine.begin() as connection:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {StockDaily.__tablename__} "
+                        "ADD COLUMN price_adjustment_basis VARCHAR(16)"
+                    )
+            except OperationalError as exc:
+                if not self._is_sqlite_duplicate_column_error(
+                    exc, "price_adjustment_basis"
+                ):
+                    raise
+        verified = {
+            column["name"]
+            for column in inspect(self._engine).get_columns(StockDaily.__tablename__)
+        }
+        if "price_adjustment_basis" not in verified:
+            raise RuntimeError(
+                "stock_daily price_adjustment_basis migration verification failed"
+            )
+
     def _ensure_stock_daily_canonical_id(self) -> None:
         """Self-healing migration: add + backfill the ``canonical_id`` column.
 
