@@ -24,9 +24,21 @@ def _number(value: Any):
 def validate_realtime_quote(quote: Any, reference_close: Any = None) -> dict:
     """Check quote arithmetic and OHLC consistency without rewriting provider data."""
     price = _number(_get(quote, "price"))
-    previous_close = _number(_get(quote, "pre_close"))
+    provider_previous_close = _number(_get(quote, "pre_close"))
+    daily_reference_close = _number(reference_close)
+    if (
+        provider_previous_close is not None
+        and daily_reference_close is not None
+        and abs(provider_previous_close - daily_reference_close) > 0.06
+    ):
+        # The provider's previous close should agree with the last completed daily candle.
+        # Preserve the provider value for arithmetic, but surface the discrepancy.
+        previous_close_mismatch = True
+    else:
+        previous_close_mismatch = False
+    previous_close = provider_previous_close
     if previous_close is None:
-        previous_close = _number(reference_close)
+        previous_close = daily_reference_close
 
     reported_change = _number(_get(quote, "change_amount"))
     reported_pct = _number(_get(quote, "change_pct"))
@@ -37,6 +49,8 @@ def validate_realtime_quote(quote: Any, reference_close: Any = None) -> dict:
     amount = _number(_get(quote, "amount"))
 
     issues = []
+    if previous_close_mismatch:
+        issues.append("previous_close_mismatch")
     calculated_change = None
     calculated_pct = None
 
