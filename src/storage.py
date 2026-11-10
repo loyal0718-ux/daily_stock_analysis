@@ -3582,7 +3582,10 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                                 'ma20': excluded.ma20,
                                 'volume_ratio': excluded.volume_ratio,
                                 'data_source': excluded.data_source,
-                                'price_adjustment_basis': excluded.price_adjustment_basis,
+                                'price_adjustment_basis': func.coalesce(
+                                    excluded.price_adjustment_basis,
+                                    StockDaily.price_adjustment_basis,
+                                ),
                                 # D1 degrade: never overwrite a previously
                                 # backfilled non-NULL canonical_id with NULL.
                                 'canonical_id': func.coalesce(
@@ -3625,7 +3628,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                     existing.ma20 = record['ma20']
                     existing.volume_ratio = record['volume_ratio']
                     existing.data_source = record['data_source']
-                    existing.price_adjustment_basis = record['price_adjustment_basis']
+                    if record['price_adjustment_basis'] is not None:
+                        existing.price_adjustment_basis = record['price_adjustment_basis']
                     if record['canonical_id'] is not None:
                         existing.canonical_id = record['canonical_id']
                     existing.updated_at = record['updated_at']
