@@ -51,3 +51,11 @@ The integration failures exposed two real contract details:
 Both are now corrected. Test fixtures now explicitly declare raw/unadjusted history and internally consistent provider previous-close / change / percent / freshness metadata. These follow-up commits have not yet been covered by a new completed CI run.
 
 The realtime overlay intentionally remains disabled for production history frames until the ingestion layer supplies verified `price_adjustment_basis` metadata. This prevents accidental mixing of qfq/auto-adjusted history with raw provider quotes.
+
+## Taiwan institutional-flow audit
+
+The repository already contains a Taiwan-only TWSE T86 / TPEx OpenAPI fetcher. It returns raw net figures in **shares**, preserves negative values as net sells, and distinguishes dealer-excluded foreign investors from dealers. TWSE and TPEx fixtures both reconcile the official three-institution total to foreign + trust + dealer.
+
+A new fail-open guard now rejects a row if the official total differs from the three component net figures, rather than allowing contradictory numbers into the prompt. Regression tests cover a one-share discrepancy for both TWSE and TPEx. The raw figures are supplied to the Taiwan analysis prompt as context; they do not directly create a numeric score. The current prompt's directional descriptions are heuristic context only, not a deterministic buy/sell signal.
+
+The institutional fetcher only accepts explicit `.TW` / `.TWO` suffixes and checks the TPEx served date against an explicitly requested date. Missing fields, malformed values, date mismatch, and fetch errors fail open as unavailable rather than fabricated zero. This is the correct direction; remaining work is to confirm the live official response and ensure every report displays its source date and unit.
