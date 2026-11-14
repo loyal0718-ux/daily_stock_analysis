@@ -95,4 +95,9 @@ The user has explicitly removed intraday real-time quotes from the required dash
 
 Historical daily price-adjustment-basis metadata remains required: all candles used together for moving averages and other technical indicators must have a consistent, known basis, and missing/unknown basis must be disclosed or handled conservatively. The Taiwan institutional-flow block remains sourced from TWSE T86 / TPEx OpenAPI and must display its own source date and unit (shares). Missing or invalid figures remain unavailable, never fabricated as zero.
 
-This update disables realtime quote collection and realtime technical-indicator overlays by default. Explicit environment overrides can still enable legacy realtime functionality; that is not part of the Taiwan dashboard's required workflow. This change does not alter notification schedules or remove Telegram/Email delivery.
+This update disables realtime quote collection and realtime technical-indicator overlays by default. Explicit environment overrides can still enable legacy realtime functionality; that is not part of the Taiwan dashboard's required workflow. It does not change the post-market daily report or its Telegram/Email delivery.
+
+
+## Notification scope clarification (2026-11-15)
+
+Only automatic intraday real-time quote notifications are cancelled. The scheduled intraday Fugle snapshot workflow has had its cron triggers removed; manual dispatch remains available for maintenance/testing. The post-market daily analysis report and its existing Telegram/Email delivery routes are explicitly retained and unchanged. No report-channel environment variable is overridden or disabled by this change.
