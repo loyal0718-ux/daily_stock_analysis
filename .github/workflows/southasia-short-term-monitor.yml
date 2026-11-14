@@ -31,7 +31,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .cache/southasia
-          key: southasia-1303-\${{ github.run_id }}
+          key: southasia-1303-${{ github.run_id }}
           restore-keys: |
             southasia-1303-
 
@@ -42,9 +42,9 @@ jobs:
 
       - name: Monitor 南亞 and send event alerts
         env:
-          FUGLE_API_KEY: \${{ secrets.FUGLE_API_KEY }}
-          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: \${{ secrets.TELEGRAM_CHAT_ID }}
+          FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           STOCK_LIST: '1303.TW'
         run: python scripts/southasia_short_term_monitor.py
 
@@ -53,4 +53,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .cache/southasia
-          key: southasia-1303-\${{ github.run_id }}
+          key: southasia-1303-${{ github.run_id }}
