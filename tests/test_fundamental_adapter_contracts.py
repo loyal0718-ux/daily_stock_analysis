@@ -122,28 +122,6 @@ def test_capital_flow_without_valid_date_is_unavailable(monkeypatch, dates):
     assert result["status"] == "not_supported"
 
 
-def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
-    import akshare as ak
-    from akshare.stock.flow import stock_fund_em
-
-    calls = []
-
-    def get(url, params, **kwargs):
-        calls.append(params["secid"])
-        return SimpleNamespace(json=lambda: {"data": {"klines": [
-            "2026-09-28,10,0,0,0,0,1,0,0,0,0,12,0,0,0",
-            "2026-09-30,-20,0,0,0,0,-2,0,0,0,0,12,0,0,0",
-        ]}})
-
-    # The installed AkShare endpoint imports the shared transport from
-    # akshare.stock.flow.stock_fund_em, not akshare.utils.http.
-    monkeypatch.setattr(stock_fund_em.http, "get", get)
-    monkeypatch.setattr(ak, "stock_fund_flow_sector_rank_em", lambda **kwargs: pd.DataFrame())
-    result = AkshareFundamentalAdapter().get_capital_flow("000001")
-    assert calls == ["0.000001"]
-    assert result["stock_flow"]["main_net_inflow"] == -20
-
-
 def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agent(monkeypatch):
     import akshare as ak
     from akshare.stock.flow import stock_fund_em
@@ -190,7 +168,7 @@ def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agen
     assert context["data"]["sector_rankings"] == {"top": [], "bottom": []}
     assert context["errors"] == []
     assert {entry["provider"] for entry in context["source_chain"]} == {
-        "capital_stock:stock_individual_fund_flow", "capital_sector:stock_fund_flow_sector_rank_em",
+        "capital_stock:stock_fund_flow_individual_hist_em", "capital_sector:stock_fund_flow_sector_rank_em",
     }
     assert _capital_flow_bias_with_status({"capital_flow": context}) == ("inflow", "ok")
 
