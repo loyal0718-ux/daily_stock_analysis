@@ -1,11 +1,8 @@
 name: Fugle Taiwan intraday email snapshot
 
 on:
-  schedule:
-    # GitHub cron uses UTC; Taiwan is UTC+8.
-    - cron: '30 2 * * 1-5'  # 10:30 Taipei
-    - cron: '30 4 * * 1-5'  # 12:30 Taipei
-    - cron: '0 7 * * 1-5'   # 15:00 Taipei
+  # Automatic intraday quote notifications are intentionally disabled.
+  # Manual dispatch remains available for maintenance/testing.
   workflow_dispatch:
 
 concurrency:
