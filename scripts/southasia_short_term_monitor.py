@@ -90,6 +90,7 @@ def main() -> None:
     )
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     events: list[str] = []
+    pending_markers: list[Path] = []
 
     under300 = marker("under300")
     near292 = marker("near292")
@@ -100,25 +101,27 @@ def main() -> None:
             "🔎【進入觀察區】南亞跌破 300 元。這只是啟動觀察，不是買進訊號；"
             "先確認賣壓是否收斂、低點是否守住，再評估第一筆。"
         )
-        under300.write_text(now.isoformat(), encoding="utf-8")
+        pending_markers.append(under300)
 
     if price <= LOWER_WATCH and not near292.exists():
         events.append(
             "⚠️【接近前低區】南亞來到 292 元或以下。請留意 289.5–292 元附近的承接；"
             "若持續破低且無法收復，不應因價格便宜而進場。"
         )
-        near292.write_text(now.isoformat(), encoding="utf-8")
+        pending_markers.append(near292)
 
     if price >= WATCH_PRICE and under300.exists() and not recovered.exists():
         events.append(
             "↗️【收復 300 元】南亞已回到 300 元以上。仍需觀察能否站穩，"
             "單次收復不代表趨勢反轉，也不構成追價指令。"
         )
-        recovered.write_text(now.isoformat(), encoding="utf-8")
+        pending_markers.append(recovered)
 
     if events:
         send(TelegramSender(config), header + "\n\n" + "\n\n".join(events) +
              "\n\n策略資金上限：50,000 元；本訊息為條件警示，非自動下單。")
+        for path in pending_markers:
+            path.write_text(now.isoformat(), encoding="utf-8")
         print(f"Alert sent: {len(events)} event(s)")
     else:
         print(
