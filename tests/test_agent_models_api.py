@@ -384,6 +384,10 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
             skills=[],
             context={"skills": ["old_skill"], "strategies": ["older_strategy"]},
         )
+        # DatabaseManager is a process-wide singleton. Isolate this temporary
+        # database from earlier tests and reset it after disposal so later tests
+        # cannot inherit a disposed engine or a different database URL.
+        DatabaseManager.reset_instance()
         with tempfile.TemporaryDirectory() as directory:
             db = DatabaseManager(db_url=f"sqlite:///{directory}/chat.db")
             try:
@@ -396,7 +400,7 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
                 self.assertEqual(db.get_conversation_session_selected_skill_ids("empty-skills"), [])
                 self.assertEqual(len(db.get_conversation_messages("empty-skills")), 2)
             finally:
-                db._engine.dispose()
+                DatabaseManager.reset_instance()
 
         mock_build_executor.assert_called_once_with(config, [])
         self.assertEqual(len(run_requests), 1)

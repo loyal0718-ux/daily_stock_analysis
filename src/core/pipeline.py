@@ -30,6 +30,7 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import is_bse_code, normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
+from src.core.quote_integrity import validate_realtime_quote
 from src.analyzer import (
     GeminiAnalyzer,
     AnalysisResult,
@@ -1042,6 +1043,14 @@ class StockAnalysisPipeline:
         
         # 添加实时行情（兼容不同数据源的字段差异）
         if realtime_quote:
+            reference_close = None
+            yesterday = enhanced.get("yesterday")
+            if isinstance(yesterday, dict):
+                reference_close = yesterday.get("close")
+            quote_integrity = validate_realtime_quote(
+                realtime_quote, reference_close=reference_close
+            )
+            enhanced["quote_integrity"] = quote_integrity
             # 使用 getattr 安全获取字段，缺失字段返回 None 或默认值
             volume_ratio = getattr(realtime_quote, 'volume_ratio', None)
             quote_source = getattr(realtime_quote, 'source', None)
@@ -1098,7 +1107,12 @@ class StockAnalysisPipeline:
 
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
         # 防护条件：trend_result.ma5 > 0 表示 MA 计算已成功且数据量充足。
-        if realtime_quote and trend_result and trend_result.ma5 > 0:
+        quote_integrity = enhanced.get("quote_integrity") or {}
+        quote_is_trusted = (
+            quote_integrity.get("status") == "pass"
+            and quote_integrity.get("freshness") == "fresh"
+        )
+        if realtime_quote and quote_is_trusted and trend_result and trend_result.ma5 > 0:
             price = getattr(realtime_quote, 'price', None)
             if price is not None and price > 0:
                 yesterday_close = None
@@ -1134,6 +1148,9 @@ class StockAnalysisPipeline:
                     'data_source': f"realtime:{source_name}",
                     'realtime_source': source_name,
                     'is_estimated': True,
+                    # Realtime quote is an in-progress bar unless a caller explicitly
+                    # supplies a finalized market-phase state.
+                    'is_partial_bar': True,
                 }
                 estimated_fields = [
                     'close', 'open', 'high', 'low', 'ma5', 'ma10', 'ma20',
@@ -2745,11 +2762,32 @@ class StockAnalysisPipeline:
             return df
         if realtime_quote is None:
             return df
-        price = getattr(realtime_quote, 'price', None)
-        if price is None or not (isinstance(price, (int, float)) and price > 0):
+        # Prefer the persisted per-row basis: ORM-loaded history does not
+        # preserve pandas attrs. Mixed or absent basis is intentionally rejected.
+        adjustment_basis = ""
+        if "price_adjustment_basis" in df.columns:
+            basis_values = [
+                str(value).strip().lower() if pd.notna(value) else ""
+                for value in df["price_adjustment_basis"].tolist()
+            ]
+            if basis_values and all(basis_values) and len(set(basis_values)) == 1:
+                adjustment_basis = basis_values[0]
+            elif any(basis_values):
+                adjustment_basis = "mixed_or_incomplete"
+        if not adjustment_basis:
+            adjustment_basis = str(
+                getattr(df, "attrs", {}).get("price_adjustment_basis", "")
+            ).strip().lower()
+        if adjustment_basis not in {"raw", "none", "unadjusted"}:
+            logger.warning(
+                "[行情品質] %s 歷史K線復權口徑=%s，非已確認原始價，略過即時價格覆蓋",
+                code,
+                adjustment_basis or "unknown",
+            )
             return df
-
-        # 非交易日可跳过实时补齐；异常情况下保持失败开放。
+        # Resolve the market date before choosing the comparison close. If the
+        # history frame already contains today's partial bar, the prior completed
+        # candle is the previous close; otherwise the last row is the previous close.
         enable_realtime_tech = getattr(
             self.config, 'enable_realtime_technical_indicators', True
         )
@@ -2760,13 +2798,33 @@ class StockAnalysisPipeline:
         market_today = get_market_now(market).date()
         if market and not is_market_open(market, market_today):
             return df
-
         last_val = df['date'].max()
         last_date = (
             last_val.date() if hasattr(last_val, 'date') else
             (last_val if isinstance(last_val, date) else pd.Timestamp(last_val).date())
         )
-        yesterday_close = float(df.iloc[-1]['close']) if len(df) > 0 else price
+        previous_bar_index = -2 if last_date >= market_today and len(df) >= 2 else -1
+        reference_close = None
+        try:
+            reference_close = float(df.iloc[previous_bar_index]['close'])
+        except (TypeError, ValueError, KeyError, IndexError):
+            reference_close = None
+        quote_integrity = validate_realtime_quote(
+            realtime_quote, reference_close=reference_close,
+            reference_close_is_unadjusted=True,
+        )
+        if quote_integrity.get("status") != "pass" or quote_integrity.get("freshness") != "fresh":
+            logger.warning(
+                "[行情品質] %s 即時報價未通過完整性檢查，略過即時 K 線覆蓋：%s",
+                code,
+                quote_integrity.get("issues") or quote_integrity.get("freshness"),
+            )
+            return df
+        price = getattr(realtime_quote, 'price', None)
+        if price is None or not (isinstance(price, (int, float)) and price > 0):
+            return df
+
+        yesterday_close = reference_close if reference_close is not None else price
         open_p = getattr(realtime_quote, 'open_price', None) or getattr(
             realtime_quote, 'pre_close', None
         ) or yesterday_close
@@ -2792,9 +2850,21 @@ class StockAnalysisPipeline:
             if amt is not None:
                 df.loc[idx, 'amount'] = amt
             if pct is not None:
-                df.loc[idx, 'pct_chg'] = pct
+                # Historical fixtures/providers may infer pct_chg as int64 when all
+                # prior values are whole numbers. Promote before writing a fractional
+                # realtime percentage to avoid pandas LossySetitemError.
+                df['pct_chg'] = pd.to_numeric(
+                    df['pct_chg'], errors='coerce'
+                ).astype(float)
+                df.loc[idx, 'pct_chg'] = float(pct)
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
+            df.loc[idx, 'data_source'] = f"realtime:{source_name}"
+            df.loc[idx, 'is_partial_bar'] = True
         else:
-            # 追加一行虚拟的当日实时 K 线。
+            # 追加一行虚擬的當日即時K線，明確標示未完成日K。
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
             new_row = {
                 'code': code,
                 'date': market_today,
@@ -2805,6 +2875,8 @@ class StockAnalysisPipeline:
                 'volume': vol,
                 'amount': amt if amt is not None else 0,
                 'pct_chg': pct if pct is not None else 0,
+                'data_source': f"realtime:{source_name}",
+                'is_partial_bar': True,
             }
             new_df = pd.DataFrame([new_row])
             df = pd.concat([df, new_df], ignore_index=True)

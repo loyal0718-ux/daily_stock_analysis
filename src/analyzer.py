@@ -4493,6 +4493,31 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 | 60日涨跌幅 | {rt.get('change_60d', 'N/A')}% | 中期表现 |
 """
 
+        # Deterministic quote-integrity diagnostics are generated before the LLM call.
+        # A warning/unknown status must constrain the recommendation, not be ignored.
+        quote_integrity = context.get("quote_integrity")
+        if isinstance(quote_integrity, dict):
+            integrity_status = quote_integrity.get("status", "unknown")
+            integrity_freshness = quote_integrity.get("freshness", "unknown")
+            integrity_issues = quote_integrity.get("issues") or []
+            integrity_pct = quote_integrity.get("calculated_pct")
+            integrity_change = quote_integrity.get("calculated_change")
+            prompt += f"""
+### 行情資料品質檢查（程式計算，優先於模型推測）
+- 檢查狀態：{integrity_status}
+- 報價新鮮度：{integrity_freshness}
+- 系統依昨收重算漲跌額：{integrity_change if integrity_change is not None else '無法計算'}
+- 系統依昨收重算漲跌幅：{integrity_pct if integrity_pct is not None else '無法計算'}%
+- 異常代碼：{', '.join(str(item) for item in integrity_issues) if integrity_issues else '無'}
+
+**強制規則：**
+1. 若檢查狀態不是 pass，或新鮮度不是 fresh，必須明確標示行情資料待確認。
+2. 若出現 change_amount_mismatch 或 change_pct_mismatch，不得自行挑選看似合理的欄位，也不得把矛盾資料當成事實。
+3. 若昨收缺失、資料過期或關鍵欄位不完整，不得給出依賴該行情的精確買入價、停損價或強烈買賣結論；應降級為觀察/待確認，並列出缺少的資料。
+4. 不得把缺值（N/A/None）描述成零、縮量、放量或沒有風險。
+5. 以上程式檢查結果不可被新聞敘述、技術指標或模型信心分數覆蓋。
+"""
+
         # 添加财报与分红（价值投资口径）
         fundamental_context = context.get("fundamental_context") if isinstance(context, dict) else None
         earnings_block = (

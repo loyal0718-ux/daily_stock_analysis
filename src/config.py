@@ -1335,10 +1335,10 @@ class Config:
     trading_day_check_enabled: bool = True
 
     # === 实时行情增强数据配置 ===
-    # 实时行情开关（关闭后使用历史收盘价进行分析）
-    enable_realtime_quote: bool = True
-    # 盘中实时技术面：启用时用实时价计算 MA/多头排列（Issue #234）；关闭则用昨日收盘
-    enable_realtime_technical_indicators: bool = True
+    # 实时行情为可选旧功能；台湾盘后仪表板默认仅使用已完成的历史日线
+    enable_realtime_quote: bool = False
+    # 盘中实时技术面默认关闭；技术指标以已完成日线计算
+    enable_realtime_technical_indicators: bool = False
     # 筹码分布开关（该接口不稳定，云端部署建议关闭）
     enable_chip_distribution: bool = True
     # 东财接口补丁开关
@@ -2388,9 +2388,9 @@ class Config:
             # Discord 机器人扩展配置
             discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
             # 实时行情增强数据配置
-            enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
+            enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'false').lower() == 'true',
             enable_realtime_technical_indicators=os.getenv(
-                'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'true'
+                'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'false'
             ).lower() == 'true',
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
             # 东财接口补丁开关

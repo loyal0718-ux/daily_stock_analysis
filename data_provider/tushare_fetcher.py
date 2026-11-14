@@ -150,6 +150,7 @@ class TushareFetcher(BaseFetcher):
     """
     
     name = "TushareFetcher"
+    price_adjustment_basis = "raw"
     priority = int(os.getenv("TUSHARE_PRIORITY", "2"))  # 默认优先级，会在 __init__ 中根据配置动态调整
 
     def __init__(self, rate_limit_per_minute: int = 80):
@@ -747,8 +748,12 @@ class TushareFetcher(BaseFetcher):
                     price=safe_float(row.get('price')),
                     change_pct=safe_float(row.get('pct_chg')),  # Pro 接口通常直接返回涨跌幅
                     change_amount=safe_float(row.get('change')),
-                    volume=safe_int(row.get('vol')),
-                    amount=safe_float(row.get('amount')),
+                    # The Pro `quotation` method used here has no verified public
+                    # field-unit contract in this adapter. Do not publish its volume
+                    # or amount as shares / yuan by assumption; legacy fallback below
+                    # has a separately documented shares-based contract.
+                    volume=None,
+                    amount=None,
                     high=safe_float(row.get('high')),
                     low=safe_float(row.get('low')),
                     open_price=safe_float(row.get('open')),
@@ -794,7 +799,7 @@ class TushareFetcher(BaseFetcher):
                 price=price,
                 change_pct=round(change_pct, 2),
                 change_amount=round(change_amount, 2),
-                volume=safe_int(row['volume']) // 100,  # 转换为手
+                volume=safe_int(row['volume']),  # legacy get_realtime_quotes returns shares; unified contract is shares
                 amount=safe_float(row['amount']),
                 high=safe_float(row['high']),
                 low=safe_float(row['low']),

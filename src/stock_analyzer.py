@@ -18,7 +18,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from enum import Enum
 
 import pandas as pd
@@ -48,6 +48,8 @@ class VolumeStatus(Enum):
     SHRINK_VOLUME_UP = "缩量上涨"      # 无量上涨
     SHRINK_VOLUME_DOWN = "缩量回调"    # 缩量回调（好）
     NORMAL = "量能正常"
+    INTRADAY_UNCONFIRMED = "盤中量能待確認"
+    UNAVAILABLE = "量能資料不足"
 
 
 class BuySignal(Enum):
@@ -104,7 +106,7 @@ class TrendAnalysisResult:
     
     # 量能分析
     volume_status: VolumeStatus = VolumeStatus.NORMAL
-    volume_ratio_5d: float = 0.0     # 当日成交量/5日均量
+    volume_ratio_5d: Optional[float] = None  # 完整日成交量/前5日均量；盤中不計算
     volume_trend: str = ""           # 量能趋势描述
     
     # 支撑压力
@@ -414,15 +416,33 @@ class StockTrendAnalyzer:
         
         偏好：缩量回调 > 放量上涨 > 缩量上涨 > 放量下跌
         """
-        if len(df) < 5:
+        if len(df) < 6 or 'volume' not in df.columns:
+            result.volume_status = VolumeStatus.UNAVAILABLE
+            result.volume_trend = "歷史量能資料不足，無法計算"
             return
-        
+
         latest = df.iloc[-1]
-        vol_5d_avg = df['volume'].iloc[-6:-1].mean()
-        
-        if vol_5d_avg > 0:
-            result.volume_ratio_5d = float(latest['volume']) / vol_5d_avg
-        
+        data_source = str(latest.get("data_source", "") or "")
+        if data_source.startswith("realtime:"):
+            # Intraday cumulative volume covers only the regular-session feed scope
+            # and is incomplete versus completed daily bars. Never compare it to
+            # five full trading days or label it shrink/heavy volume.
+            result.volume_ratio_5d = None
+            result.volume_status = VolumeStatus.INTRADAY_UNCONFIRMED
+            result.volume_trend = "盤中累計成交量尚未完整，且與日K成交量涵蓋範圍不同；不與完整日均量比較"
+            return
+
+        latest_volume = pd.to_numeric(pd.Series([latest.get("volume")]), errors="coerce").iloc[0]
+        historical_volumes = pd.to_numeric(df['volume'].iloc[-6:-1], errors="coerce")
+        vol_5d_avg = historical_volumes.mean()
+        if pd.isna(latest_volume) or pd.isna(vol_5d_avg) or vol_5d_avg <= 0:
+            result.volume_ratio_5d = None
+            result.volume_status = VolumeStatus.UNAVAILABLE
+            result.volume_trend = "成交量缺值或歷史均量無效，無法判定"
+            return
+
+        result.volume_ratio_5d = float(latest_volume) / float(vol_5d_avg)
+
         # 判断价格变化
         prev_close = df.iloc[-2]['close']
         price_change = (latest['close'] - prev_close) / prev_close * 100
@@ -441,7 +461,7 @@ class StockTrendAnalyzer:
                 result.volume_trend = "缩量上涨，上攻动能不足"
             else:
                 result.volume_status = VolumeStatus.SHRINK_VOLUME_DOWN
-                result.volume_trend = "缩量回调，洗盘特征明显（好）"
+                result.volume_trend = "縮量回調，成交活躍度下降；不能單憑量價推定主力洗盤"
         else:
             result.volume_status = VolumeStatus.NORMAL
             result.volume_trend = "量能正常"
@@ -669,6 +689,8 @@ class StockTrendAnalyzer:
             VolumeStatus.SHRINK_VOLUME_DOWN: 15,  # 缩量回调最佳
             VolumeStatus.HEAVY_VOLUME_UP: 12,     # 放量上涨次之
             VolumeStatus.NORMAL: 10,
+            VolumeStatus.INTRADAY_UNCONFIRMED: 10, # 量能未知，採正常量能中性分
+            VolumeStatus.UNAVAILABLE: 10,          # 量能缺值，採正常量能中性分
             VolumeStatus.SHRINK_VOLUME_UP: 6,     # 无量上涨较差
             VolumeStatus.HEAVY_VOLUME_DOWN: 0,    # 放量下跌最差
         }
@@ -676,7 +698,7 @@ class StockTrendAnalyzer:
         score += vol_score
 
         if result.volume_status == VolumeStatus.SHRINK_VOLUME_DOWN:
-            reasons.append("✅ 缩量回调，主力洗盘")
+            reasons.append("缩量回调：成交活跃度下降，尚不能据此认定主力洗盘")
         elif result.volume_status == VolumeStatus.HEAVY_VOLUME_DOWN:
             risks.append("⚠️ 放量下跌，注意风险")
 
@@ -763,6 +785,11 @@ class StockTrendAnalyzer:
         Returns:
             格式化的分析文本
         """
+        volume_ratio_display = (
+            f"{result.volume_ratio_5d:.2f}"
+            if result.volume_ratio_5d is not None
+            else "N/A（未計算）"
+        )
         lines = [
             f"=== {result.code} 趋势分析 ===",
             f"",
@@ -777,7 +804,7 @@ class StockTrendAnalyzer:
             f"   MA20: {result.ma20:.2f} (乖离 {result.bias_ma20:+.2f}%)",
             f"",
             f"📊 量能分析: {result.volume_status.value}",
-            f"   量比(vs5日): {result.volume_ratio_5d:.2f}",
+            f"   量比(vs5日): {volume_ratio_display}",
             f"   量能趋势: {result.volume_trend}",
             f"",
             f"📈 MACD指标: {result.macd_status.value}",

@@ -33,19 +33,26 @@ def _make_realtime_quote(
     change_pct: float = 0.96,
     **overrides,
 ) -> UnifiedRealtimeQuote:
-    return UnifiedRealtimeQuote(
-        code="600519",
-        name="贵州茅台",
-        source=RealtimeSource.TENCENT,
-        price=price,
-        open_price=open_price,
-        high=high,
-        low=low,
-        volume=volume,
-        amount=amount,
-        change_pct=change_pct,
-        **overrides,
+    default_pre_close = (
+        price / (1.0 + change_pct / 100.0) if change_pct > -100 else None
     )
+    quote_fields = {
+        "code": "600519",
+        "name": "贵州茅台",
+        "source": RealtimeSource.TENCENT,
+        "price": price,
+        "open_price": open_price,
+        "high": high,
+        "low": low,
+        "volume": volume,
+        "amount": amount,
+        "change_pct": change_pct,
+        "pre_close": default_pre_close,
+        "change_amount": price - default_pre_close if default_pre_close else None,
+        "is_stale": False,
+    }
+    quote_fields.update(overrides)
+    return UnifiedRealtimeQuote(**quote_fields)
 
 
 def _make_historical_df(days: int = 25, last_date: date = None) -> pd.DataFrame:
@@ -72,7 +79,17 @@ def _make_historical_df(days: int = 25, last_date: date = None) -> pd.DataFrame:
             "ma20": close - 0.2,
             "volume_ratio": 1.0,
         })
-    return pd.DataFrame(data)
+    frame = pd.DataFrame(data)
+    frame.attrs["price_adjustment_basis"] = "raw"
+    return frame
+
+
+def _align_quote_to_previous_close(quote, previous_close):
+    quote.pre_close = float(previous_close)
+    quote.change_amount = float(quote.price) - float(previous_close)
+    quote.change_pct = quote.change_amount / float(previous_close) * 100
+    quote.is_stale = False
+    return quote
 
 
 class TestAugmentHistoricalWithRealtime(unittest.TestCase):
@@ -83,11 +100,32 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
             os.path.dirname(__file__), "..", "data", "test_issue234.db"
         )
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
+        with patch.dict(os.environ, {
+            "DATABASE_PATH": self._db_path,
+            # These tests exercise the optional legacy realtime path explicitly.
+            "ENABLE_REALTIME_QUOTE": "true",
+            "ENABLE_REALTIME_TECHNICAL_INDICATORS": "true",
+        }):
             from src.config import Config
             Config._instance = None
             self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
+
+    def test_adjusted_persisted_history_rejects_raw_realtime_overlay(self) -> None:
+        df = _make_historical_df()
+        df["price_adjustment_basis"] = "qfq"
+        quote = _make_realtime_quote()
+        result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
+        self.assertEqual(len(result), len(df))
+        self.assertEqual(result.iloc[-1]["close"], df.iloc[-1]["close"])
+
+    def test_mixed_or_unknown_persisted_history_rejects_realtime_overlay(self) -> None:
+        df = _make_historical_df()
+        df["price_adjustment_basis"] = ["raw"] * (len(df) - 1) + [None]
+        quote = _make_realtime_quote()
+        result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
+        self.assertEqual(len(result), len(df))
+        self.assertEqual(result.iloc[-1]["close"], df.iloc[-1]["close"])
 
     def test_returns_unchanged_when_realtime_none(self) -> None:
         df = _make_historical_df()
@@ -131,7 +169,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
             today.year, today.month, today.day, 10, 0, tzinfo=timezone.utc
         )
         df = _make_historical_df(last_date=today - timedelta(days=1))
-        quote = _make_realtime_quote(price=15.72)
+        quote = _align_quote_to_previous_close(
+            _make_realtime_quote(price=15.72), float(df.iloc[-1]["close"])
+        )
         result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
         self.assertEqual(len(result), len(df) + 1)
         last = result.iloc[-1]
@@ -152,7 +192,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         )
         df = _make_historical_df(last_date=today, days=25)
         df.loc[df.index[-1], "date"] = today
-        quote = _make_realtime_quote(price=16.0)
+        quote = _align_quote_to_previous_close(
+            _make_realtime_quote(price=16.0), float(df.iloc[-2]["close"])
+        )
         result = self.pipeline._augment_historical_with_realtime(df, quote, "600519")
         self.assertEqual(len(result), len(df))
         self.assertEqual(result.iloc[-1]["close"], 16.0)
@@ -182,7 +224,12 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
             os.path.dirname(__file__), "..", "data", "test_issue234.db"
         )
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
+        with patch.dict(os.environ, {
+            "DATABASE_PATH": self._db_path,
+            # These tests exercise the optional legacy realtime path explicitly.
+            "ENABLE_REALTIME_QUOTE": "true",
+            "ENABLE_REALTIME_TECHNICAL_INDICATORS": "true",
+        }):
             from src.config import Config
             Config._instance = None
             self.config = Config._load_from_env()
@@ -259,7 +306,10 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
             low=116.20,
             volume=10931723,
             amount=1327404280,
-            change_pct=3.40,
+            change_pct=(122.70 - 128.46) / 128.46 * 100,
+            change_amount=122.70 - 128.46,
+            pre_close=128.46,
+            is_stale=False,
         )
         trend = TrendAnalysisResult(
             code="688691",
