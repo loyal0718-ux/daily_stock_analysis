@@ -545,7 +545,7 @@ class AkshareFundamentalAdapter:
         # with older pinned installations and test doubles.
         sector_df, sector_source, sector_errors = self._call_df_candidates([
             ("stock_fund_flow_sector_rank_em", {"indicator": "今日", "sector_type": "行业资金流"}),
-            ("stock_sector_fund_flow_rank", {"indicator": "今日", "sector_type": "行业资金流"}),
+            ("stock_sector_fund_flow_rank", {}),
         ])
         result["errors"].extend(sector_errors)
         if sector_df is not None:
