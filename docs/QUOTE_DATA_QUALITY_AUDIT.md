@@ -87,3 +87,12 @@ The schema migration and preservation behavior, YFinance basis tagging, and adju
 - Removed a Shenzhen-specific AkShare capital-flow test because Shenzhen/A-share coverage is outside this Taiwan dashboard's acceptance scope. Updated the remaining AkShare contract test to the current endpoint name; this is not evidence that live Taiwan institutional data has been verified.
 - Production `main` remains unchanged. PR #1 remains draft and unmerged.
 - Remaining pre-merge checks are operational/data-source checks, not a reason to weaken CI: verify current TWSE T86 and TPEx OpenAPI live payloads, confirm the exact AkShare 1.20.45 endpoint signature/columns if that adapter remains in scope, and confirm the user-facing report displays the Taiwan institutional source date and unit (shares). The TWSE/TPEx institutional fetcher is Taiwan-only and is the intended source for Taiwan three-institution figures; AkShare capital-flow compatibility is separate and must not be presented as Taiwan institutional data.
+
+
+## Product acceptance scope update (2026-11-14)
+
+The user has explicitly removed intraday real-time quotes from the required dashboard workflow. The intended report is post-market and must use completed daily bars; no intraday quote, partial-day volume, or realtime-price overlay is required for acceptance. Fugle quote normalization and realtime overlay are retained only as optional provider/legacy capabilities, not as dependencies or acceptance gates for the Taiwan daily report.
+
+Historical daily price-adjustment-basis metadata remains required: all candles used together for moving averages and other technical indicators must have a consistent, known basis, and missing/unknown basis must be disclosed or handled conservatively. The Taiwan institutional-flow block remains sourced from TWSE T86 / TPEx OpenAPI and must display its own source date and unit (shares). Missing or invalid figures remain unavailable, never fabricated as zero.
+
+This update disables realtime quote collection and realtime technical-indicator overlays by default. Explicit environment overrides can still enable legacy realtime functionality; that is not part of the Taiwan dashboard's required workflow. This change does not alter notification schedules or remove Telegram/Email delivery.
