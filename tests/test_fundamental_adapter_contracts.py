@@ -124,7 +124,7 @@ def test_capital_flow_without_valid_date_is_unavailable(monkeypatch, dates):
 
 def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
     import akshare as ak
-    from akshare.utils import http as ak_http
+    from akshare.stock.flow import stock_fund_em
 
     calls = []
 
@@ -135,7 +135,9 @@ def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
             "2026-09-30,-20,0,0,0,0,-2,0,0,0,0,12,0,0,0",
         ]}})
 
-    monkeypatch.setattr(ak_http, "get", get)
+    # The installed AkShare endpoint imports the shared transport from
+    # akshare.stock.flow.stock_fund_em, not akshare.utils.http.
+    monkeypatch.setattr(stock_fund_em.http, "get", get)
     monkeypatch.setattr(ak, "stock_fund_flow_sector_rank_em", lambda **kwargs: pd.DataFrame())
     result = AkshareFundamentalAdapter().get_capital_flow("000001")
     assert calls == ["0.000001"]
@@ -144,7 +146,7 @@ def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
 
 def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agent(monkeypatch):
     import akshare as ak
-    import requests
+    from akshare.stock.flow import stock_fund_em
 
     from data_provider.base import DataFetcherManager
     from src.agent.tools.data_tools import _handle_get_capital_flow
@@ -171,7 +173,7 @@ def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agen
 
     # Keep both AkShare implementations and the adapter/manager execution real;
     # replace only their HTTP boundary and runtime configuration.
-    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(stock_fund_em.http, "get", get)
     sector_df = ak.stock_fund_flow_sector_rank_em(indicator="今日", sector_type="行业资金流")
     assert sector_df["今日主力净流入-净额"].isna().all()
     calls.clear()
