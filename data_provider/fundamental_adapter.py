@@ -540,8 +540,12 @@ class AkshareFundamentalAdapter:
                     }
                     result["source_chain"].append(f"capital_stock:{stock_source}")
 
+        # AkShare 1.20.45 renamed this endpoint and removed the legacy
+        # symbol. Prefer the current public API while retaining compatibility
+        # with older pinned installations and test doubles.
         sector_df, sector_source, sector_errors = self._call_df_candidates([
-            ("stock_sector_fund_flow_rank", {}),
+            ("stock_fund_flow_sector_rank_em", {"indicator": "今日", "sector_type": "行业资金流"}),
+            ("stock_sector_fund_flow_rank", {"indicator": "今日", "sector_type": "行业资金流"}),
         ])
         result["errors"].extend(sector_errors)
         if sector_df is not None:
