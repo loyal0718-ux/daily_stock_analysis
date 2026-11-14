@@ -100,7 +100,12 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
             os.path.dirname(__file__), "..", "data", "test_issue234.db"
         )
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
+        with patch.dict(os.environ, {
+            "DATABASE_PATH": self._db_path,
+            # These tests exercise the optional legacy realtime path explicitly.
+            "ENABLE_REALTIME_QUOTE": "true",
+            "ENABLE_REALTIME_TECHNICAL_INDICATORS": "true",
+        }):
             from src.config import Config
             Config._instance = None
             self.config = Config._load_from_env()
@@ -219,7 +224,12 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
             os.path.dirname(__file__), "..", "data", "test_issue234.db"
         )
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
+        with patch.dict(os.environ, {
+            "DATABASE_PATH": self._db_path,
+            # These tests exercise the optional legacy realtime path explicitly.
+            "ENABLE_REALTIME_QUOTE": "true",
+            "ENABLE_REALTIME_TECHNICAL_INDICATORS": "true",
+        }):
             from src.config import Config
             Config._instance = None
             self.config = Config._load_from_env()
