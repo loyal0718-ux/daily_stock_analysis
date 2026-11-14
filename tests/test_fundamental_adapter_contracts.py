@@ -124,7 +124,7 @@ def test_capital_flow_without_valid_date_is_unavailable(monkeypatch, dates):
 
 def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
     import akshare as ak
-    import requests
+    from akshare.utils import http as ak_http
 
     calls = []
 
@@ -135,7 +135,7 @@ def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
             "2026-09-30,-20,0,0,0,0,-2,0,0,0,0,12,0,0,0",
         ]}})
 
-    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(ak_http, "get", get)
     monkeypatch.setattr(ak, "stock_fund_flow_sector_rank_em", lambda **kwargs: pd.DataFrame())
     result = AkshareFundamentalAdapter().get_capital_flow("000001")
     assert calls == ["0.000001"]
