@@ -79,3 +79,11 @@ The schema migration and preservation behavior, YFinance basis tagging, and adju
 - Fugle's [usage statement](https://developer.fugle.tw/docs/data/intro/) also says intraday cumulative volume/value covers regular board-lot trades only; odd-lot and after-hours transactions are excluded. This limitation must be shown in the report and must not be compared blindly to a full-day all-session historical volume.
 - Tushare's [A-share daily API](https://tushare.pro/document/1?doc_id=27) explicitly documents `daily` as unadjusted, volume in lots, and amount in thousand yuan. The current historical normalizer scales those values to shares and yuan.
 - Tushare's [rt_k real-time daily API](https://tushare.pro/document/1?doc_id=372) documents volume in shares and amount in yuan. The current code does not call `rt_k`; it calls `quotation`, whose exact response contract still requires separate verification. Do not infer `quotation` units from `rt_k`.
+
+
+## CI follow-up (2026-11-14)
+
+- PR head `bc47d43b62cd6e603a056f4681fde52e8fc97518` completed GitHub Actions run #55 successfully: all three backend test shards passed, Docker build passed, AI governance passed, change detection passed, and backend-gate passed. The three backend shards together reported 2,805 passed, 49 warnings, and 361 subtests passed.
+- Removed a Shenzhen-specific AkShare capital-flow test because Shenzhen/A-share coverage is outside this Taiwan dashboard's acceptance scope. Updated the remaining AkShare contract test to the current endpoint name; this is not evidence that live Taiwan institutional data has been verified.
+- Production `main` remains unchanged. PR #1 remains draft and unmerged.
+- Remaining pre-merge checks are operational/data-source checks, not a reason to weaken CI: verify current TWSE T86 and TPEx OpenAPI live payloads, confirm the exact AkShare 1.20.45 endpoint signature/columns if that adapter remains in scope, and confirm the user-facing report displays the Taiwan institutional source date and unit (shares). The TWSE/TPEx institutional fetcher is Taiwan-only and is the intended source for Taiwan three-institution figures; AkShare capital-flow compatibility is separate and must not be presented as Taiwan institutional data.
