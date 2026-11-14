@@ -748,8 +748,12 @@ class TushareFetcher(BaseFetcher):
                     price=safe_float(row.get('price')),
                     change_pct=safe_float(row.get('pct_chg')),  # Pro 接口通常直接返回涨跌幅
                     change_amount=safe_float(row.get('change')),
-                    volume=safe_int(row.get('vol')),
-                    amount=safe_float(row.get('amount')),
+                    # The Pro `quotation` method used here has no verified public
+                    # field-unit contract in this adapter. Do not publish its volume
+                    # or amount as shares / yuan by assumption; legacy fallback below
+                    # has a separately documented shares-based contract.
+                    volume=None,
+                    amount=None,
                     high=safe_float(row.get('high')),
                     low=safe_float(row.get('low')),
                     open_price=safe_float(row.get('open')),
