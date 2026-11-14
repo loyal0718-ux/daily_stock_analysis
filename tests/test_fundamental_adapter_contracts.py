@@ -136,7 +136,7 @@ def test_capital_flow_real_akshare_request_uses_shenzhen_security(monkeypatch):
         ]}})
 
     monkeypatch.setattr(requests, "get", get)
-    monkeypatch.setattr(ak, "stock_sector_fund_flow_rank", lambda: pd.DataFrame())
+    monkeypatch.setattr(ak, "stock_fund_flow_sector_rank_em", lambda **kwargs: pd.DataFrame())
     result = AkshareFundamentalAdapter().get_capital_flow("000001")
     assert calls == ["0.000001"]
     assert result["stock_flow"]["main_net_inflow"] == -20
@@ -172,7 +172,7 @@ def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agen
     # Keep both AkShare implementations and the adapter/manager execution real;
     # replace only their HTTP boundary and runtime configuration.
     monkeypatch.setattr(requests, "get", get)
-    sector_df = ak.stock_sector_fund_flow_rank()
+    sector_df = ak.stock_fund_flow_sector_rank_em(indicator="今日", sector_type="行业资金流")
     assert sector_df["今日主力净流入-净额"].isna().all()
     calls.clear()
     cfg = SimpleNamespace(fundamental_fetch_timeout_seconds=2.0, fundamental_retry_max=1)
@@ -188,7 +188,7 @@ def test_capital_flow_real_akshare_missing_sector_amounts_reach_manager_and_agen
     assert context["data"]["sector_rankings"] == {"top": [], "bottom": []}
     assert context["errors"] == []
     assert {entry["provider"] for entry in context["source_chain"]} == {
-        "capital_stock:stock_individual_fund_flow", "capital_sector:stock_sector_fund_flow_rank",
+        "capital_stock:stock_individual_fund_flow", "capital_sector:stock_fund_flow_sector_rank_em",
     }
     assert _capital_flow_bias_with_status({"capital_flow": context}) == ("inflow", "ok")
 
@@ -293,6 +293,7 @@ def test_installed_akshare_receives_valid_parameters_at_http_boundary(monkeypatc
     # stubs would hide signature errors and upstream request construction.
     import akshare as ak
     import requests
+    from akshare.stock.flow import stock_fund_em
 
     calls = []
 
@@ -300,7 +301,11 @@ def test_installed_akshare_receives_valid_parameters_at_http_boundary(monkeypatc
         calls.append((url, dict(kwargs.get("params", {}))))
         raise RuntimeError("offline transport boundary")
 
+    # AkShare 1.20.45 routes these endpoints through its shared HTTP client,
+    # not requests.get directly. Patch that transport boundary while retaining
+    # the real endpoint functions and their parameter construction.
     monkeypatch.setattr(requests, "get", stop_at_http)
+    monkeypatch.setattr(stock_fund_em.http, "get", stop_at_http)
     for name in (
         "stock_financial_abstract", "stock_financial_analysis_indicator",
         "stock_fhps_detail_em", "stock_history_dividend_detail", "stock_dividend_cninfo",
