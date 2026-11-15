@@ -80,6 +80,13 @@ def test_daily_analysis_maps_all_provider_template_channels() -> None:
     assert not any(key.startswith("LLM_ARK_") for key in env)
 
 
+def test_retired_gemini_fallback_is_normalized() -> None:
+    from src.config import normalize_gemini_fallback_model
+
+    assert normalize_gemini_fallback_model("gemini-2.5-flash") == "gemini-3.8-flash"
+    assert normalize_gemini_fallback_model("gemini-3.7-flash") == "gemini-3.7-flash"
+
+
 def test_daily_analysis_uses_current_gemini_fallback_default() -> None:
     env = _load_daily_analysis_env()
     assert env["GEMINI_MODEL_FALLBACK"] == (
