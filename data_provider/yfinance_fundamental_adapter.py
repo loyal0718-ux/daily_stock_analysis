@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 _INCOME_REVENUE_KEYS = ("Total Revenue", "TotalRevenue", "Revenue")
+_INCOME_GROSS_PROFIT_KEYS = ("Gross Profit", "GrossProfit", "Gross Profit From Business")
 _INCOME_NET_PROFIT_KEYS = (
     "Net Income Common Stockholders",
     "Net Income From Continuing Operation Net Minority Interest",
@@ -196,11 +197,19 @@ class YfinanceFundamentalAdapter:
         dividend_currency = str(info.get("currency") or info.get("financialCurrency") or "").upper() or None
 
         # ---------------- growth block ----------------
+        revenue_yoy_info = _ratio_to_pct(info.get("revenueGrowth"))
+        net_profit_yoy_info = _ratio_to_pct(info.get("earningsGrowth"))
+        roe_ttm = _ratio_to_pct(info.get("returnOnEquity"))
+        gross_margin_ttm = _ratio_to_pct(info.get("grossMargins"))
         growth_payload: Dict[str, Any] = {
-            "revenue_yoy": _ratio_to_pct(info.get("revenueGrowth")),
-            "net_profit_yoy": _ratio_to_pct(info.get("earningsGrowth")),
-            "roe": _ratio_to_pct(info.get("returnOnEquity")),
-            "gross_margin": _ratio_to_pct(info.get("grossMargins")),
+            "revenue_yoy": revenue_yoy_info,
+            "revenue_yoy_basis": "provider_reported_growth" if revenue_yoy_info is not None else None,
+            "net_profit_yoy": net_profit_yoy_info,
+            "net_profit_yoy_basis": "provider_reported_growth" if net_profit_yoy_info is not None else None,
+            "roe": roe_ttm,
+            "roe_basis": "ttm" if roe_ttm is not None else None,
+            "gross_margin": gross_margin_ttm,
+            "gross_margin_basis": "ttm" if gross_margin_ttm is not None else None,
         }
         if any(v is not None for v in growth_payload.values()):
             result["growth"] = growth_payload
@@ -213,6 +222,10 @@ class YfinanceFundamentalAdapter:
         operating_cash_flow_latest: Optional[float] = None
         revenue_row = None
         net_profit_row = None
+        gross_profit_row = None
+        revenue_from_quarterly_statement = False
+        net_profit_from_quarterly_statement = False
+        cashflow_from_quarterly_statement = False
 
         try:
             income_df = ticker.quarterly_income_stmt
@@ -231,8 +244,11 @@ class YfinanceFundamentalAdapter:
                 pass
             revenue_row = _pick_row(income_df, _INCOME_REVENUE_KEYS)
             net_profit_row = _pick_row(income_df, _INCOME_NET_PROFIT_KEYS)
+            gross_profit_row = _pick_row(income_df, _INCOME_GROSS_PROFIT_KEYS)
             revenue_latest = _latest_value(revenue_row)
             net_profit_latest = _latest_value(net_profit_row)
+            revenue_from_quarterly_statement = revenue_latest is not None
+            net_profit_from_quarterly_statement = net_profit_latest is not None
 
         try:
             cashflow_df = ticker.quarterly_cashflow
@@ -241,6 +257,7 @@ class YfinanceFundamentalAdapter:
             cashflow_df = None
         if cashflow_df is not None and not cashflow_df.empty:
             operating_cash_flow_latest = _latest_value(_pick_row(cashflow_df, _CASHFLOW_OP_KEYS))
+            cashflow_from_quarterly_statement = operating_cash_flow_latest is not None
 
         # Fallback to TTM aggregates from .info when quarterly statements are
         # unavailable — still produces a non-empty row.
@@ -261,17 +278,32 @@ class YfinanceFundamentalAdapter:
         statement_net_profit_yoy = _yoy_from_row(net_profit_row)
         if statement_revenue_yoy is not None:
             growth_payload["revenue_yoy"] = statement_revenue_yoy
+            growth_payload["revenue_yoy_basis"] = "same_quarter_statement_yoy"
         if statement_net_profit_yoy is not None:
             growth_payload["net_profit_yoy"] = statement_net_profit_yoy
+            growth_payload["net_profit_yoy_basis"] = "same_quarter_statement_yoy"
+
+        # A quarterly report must not display Yahoo's TTM gross margin as if it
+        # were the reported quarter's margin. Prefer gross profit / revenue from
+        # the same quarterly income-statement column; retain TTM only as a
+        # clearly labelled fallback when the statement lacks either value.
+        gross_profit_latest = _latest_value(gross_profit_row)
+        if revenue_latest not in (None, 0) and gross_profit_latest is not None:
+            growth_payload["gross_margin"] = round(gross_profit_latest / revenue_latest * 100.0, 4)
+            growth_payload["gross_margin_basis"] = "quarterly_statement"
         if any(v is not None for v in growth_payload.values()):
             result["growth"] = growth_payload
 
         financial_report = {
             "report_date": report_date,
             "revenue": revenue_latest,
+            "revenue_basis": "quarterly_statement" if revenue_from_quarterly_statement else ("ttm_info" if revenue_latest is not None else None),
             "net_profit_parent": net_profit_latest,
+            "net_profit_basis": "quarterly_statement" if net_profit_from_quarterly_statement else ("ttm_estimate" if net_profit_latest is not None else None),
             "operating_cash_flow": operating_cash_flow_latest,
+            "operating_cash_flow_basis": "quarterly_statement" if cashflow_from_quarterly_statement else ("ttm_info" if operating_cash_flow_latest is not None else None),
             "roe": growth_payload.get("roe"),
+            "roe_basis": growth_payload.get("roe_basis"),
             "currency": financial_currency,
         }
         if any(v is not None and v != "" for v in financial_report.values()):
