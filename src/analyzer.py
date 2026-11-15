@@ -4656,10 +4656,10 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             gross_margin_basis = growth_data.get("gross_margin_basis", "unknown")
             if english:
                 prompt += (
-                    "\\n**Period integrity rule:** Never describe a TTM/info metric as a quarterly result. "
+                    "\n**Period integrity rule:** Never describe a TTM/info metric as a quarterly result. "
                     "Only quarterly_statement is a reported quarter; ttm / ttm_info is trailing-12-month "
                     "or provider summary data; provider_reported_growth is a vendor ratio with its own period. "
-                    "Keep each basis label attached to its metric and do not infer a missing quarter value.\\n"
+                    "Keep each basis label attached to its metric and do not infer a missing quarter value.\n"
                 )
                 prompt += f"""
 ### Financials and Dividends (value-investing view)
@@ -4681,10 +4681,10 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 """
             else:
                 prompt += (
-                    "\\n**財報期間防混用規則：** 只有 quarterly_statement 才能稱為單季財報；"
+                    "\n**財報期間防混用規則：** 只有 quarterly_statement 才能稱為單季財報；"
                     "ttm / ttm_info 是近十二個月或供應商摘要數值；"
                     "provider_reported_growth 是供應商回報的成長率，期間未必等同單季。"
-                    "每個指標必須保留自己的期間標籤，不得將 TTM 毛利率寫成第三季毛利率，也不得自行補造缺失數字。\\n"
+                    "每個指標必須保留自己的期間標籤，不得將 TTM 毛利率寫成第三季毛利率，也不得自行補造缺失數字。\n"
                 )
                 prompt += f"""
 ### 财报与分红（价值投资口径）
