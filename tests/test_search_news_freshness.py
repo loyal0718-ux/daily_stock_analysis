@@ -2376,19 +2376,18 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
             canonicalize_foreign_stock_code,
         )
 
-        stock_name_foreign_keys = {
+        stock_name_keys = {
             canonicalize_foreign_stock_code(code)
             for code in STOCK_NAME_MAP
-            if SearchService._is_foreign_stock(code)
         }
         english_map_keys = {
             canonicalize_foreign_stock_code(code)
             for code in STOCK_ENGLISH_NAME_MAP
         }
         self.assertTrue(
-            english_map_keys.issubset(stock_name_foreign_keys),
+            english_map_keys.issubset(stock_name_keys),
             f"STOCK_ENGLISH_NAME_MAP has orphan keys: "
-            f"{sorted(english_map_keys - stock_name_foreign_keys)}",
+            f"{sorted(english_map_keys - stock_name_keys)}",
         )
 
     def test_score_news_relevance_english_alias_dedup_prevents_double_count(self) -> None:
