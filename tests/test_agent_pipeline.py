@@ -1880,7 +1880,10 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             )
 
             self.assertIsNotNone(result)
-            self.assertEqual(result.decision_type, "buy")
+            # A BUY direction without a complete, internally valid entry/stop/target
+            # plan must fail closed to HOLD before persistence or signal extraction.
+            self.assertEqual(result.decision_type, "hold")
+            self.assertEqual(result.dashboard["decision_type"], "hold")
             self.assertIsNone(result.action)
             self.assertIsNone(result.action_label)
             self.assertNotIn("agent_disagreement_explanation", result.dashboard)
