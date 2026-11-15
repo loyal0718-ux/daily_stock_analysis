@@ -171,6 +171,7 @@ def _format_zh(payload: Dict[str, Any]) -> str:
     if block_lines:
         lines.append("- 数据块状态：")
         lines.extend(f"  - {line}" for line in block_lines)
+    blocks = payload.get("blocks") if isinstance(payload.get("blocks"), Mapping) else {}
     quote_block = blocks.get("quote") if isinstance(blocks.get("quote"), Mapping) else {}
     if "realtime_quote_disabled" in _item_missing_reasons(quote_block.get("items")):
         lines.append(
@@ -194,6 +195,7 @@ def _format_en(payload: Dict[str, Any]) -> str:
     if block_lines:
         lines.append("- Data block status:")
         lines.extend(f"  - {line}" for line in block_lines)
+    blocks = payload.get("blocks") if isinstance(payload.get("blocks"), Mapping) else {}
     quote_block = blocks.get("quote") if isinstance(blocks.get("quote"), Mapping) else {}
     if "realtime_quote_disabled" in _item_missing_reasons(quote_block.get("items")):
         lines.append(
