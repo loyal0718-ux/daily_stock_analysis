@@ -80,6 +80,13 @@ def test_daily_analysis_maps_all_provider_template_channels() -> None:
     assert not any(key.startswith("LLM_ARK_") for key in env)
 
 
+def test_daily_analysis_uses_current_gemini_fallback_default() -> None:
+    env = _load_daily_analysis_env()
+    assert env["GEMINI_MODEL_FALLBACK"] == (
+        "${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-3.8-flash' }}"
+    )
+
+
 def test_daily_analysis_accepts_modelflare_one_key_from_secrets() -> None:
     assert _load_daily_analysis_env()["MODELFLARE_KEY"] == "${{ secrets.MODELFLARE_KEY }}"
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
