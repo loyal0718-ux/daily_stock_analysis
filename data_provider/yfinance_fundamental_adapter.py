@@ -288,7 +288,7 @@ class YfinanceFundamentalAdapter:
         # the same quarterly income-statement column; retain TTM only as a
         # clearly labelled fallback when the statement lacks either value.
         gross_profit_latest = _latest_value(gross_profit_row)
-        if revenue_latest not in (None, 0) and gross_profit_latest is not None:
+        if revenue_from_quarterly_statement and revenue_latest not in (None, 0) and gross_profit_latest is not None:
             growth_payload["gross_margin"] = round(gross_profit_latest / revenue_latest * 100.0, 4)
             growth_payload["gross_margin_basis"] = "quarterly_statement"
         if any(v is not None for v in growth_payload.values()):
