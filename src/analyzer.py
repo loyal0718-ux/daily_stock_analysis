@@ -4696,6 +4696,41 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 > 三大法人是台股的筹码过滤器（相当于 A 股主力资金/龙虎榜的角色，但口径不同、不可混用）：外资与投信同向净买支持价格、同向净卖压制价格。请据此判断台股筹码结构，不要在有本数据时写“筹码结构：数据缺失”。
 """
 
+
+        elif (
+            detect_market(code) == "tw"
+            and isinstance(institution_block, dict)
+            and institution_block.get("status") in {"unavailable", "disabled"}
+        ):
+            institution_errors = institution_block.get("errors") or []
+            error_text = "；".join(str(item) for item in institution_errors) if institution_errors else "官方資料暫時無法取得"
+            if english:
+                prompt += f"""
+### Taiwan Institutional Data Availability
+- Status: UNAVAILABLE
+- Source: TWSE / TPEx official institutional trading statistics
+- Reason: {error_text}
+
+**Mandatory interpretation rules:**
+1. Institutional net-buy/sell figures were not obtained or validated for this report. Do not present any institution's value as 0.
+2. Do not infer foreign, investment-trust, dealer, or total institutional buying/selling direction from missing data.
+3. Explicitly state that Taiwan institutional-flow data is unavailable and identify the reason above.
+4. Do not use this missing block as evidence for accumulation, distribution, wash trading, or a buy/sell signal.
+"""
+            else:
+                prompt += f"""
+### 台股三大法人資料狀態
+- 狀態：不可取得（UNAVAILABLE）
+- 資料來源：證交所／櫃買中心官方三大法人買賣超統計
+- 原因：{error_text}
+
+**強制解讀規則：**
+1. 本次報告未取得或未能驗證三大法人數據；不得將任何法人數值寫成 0。
+2. 不得根據缺失資料推斷外資、投信、自營商或三大法人合計的買賣超方向。
+3. 報告必須明確揭露「台股三大法人資料不可取得」，並列出上述原因。
+4. 不得把這項缺失當成法人進貨、出貨、洗盤或買賣訊號的證據。
+"""
+
         # 添加筹码分布数据
         if 'chip' in context and english:
             chip = context['chip']
