@@ -1,9 +1,9 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
+  # 定时触发 - 每個台股交易日台灣時間 18:00 (UTC 10:00)
   schedule:
-    - cron: '0 10 * * 1-5'     # 周一到周五，UTC 10:00 = 北京时间 18:00
+    - cron: '0 10 * * 1-5'     # Monday-Friday, UTC 10:00 = Asia/Taipei 18:00
   
   # 手动触发
   workflow_dispatch:
@@ -221,7 +221,7 @@ jobs:
           # ==========================================
           # 避免直接写入 STOCK_LIST，保留同名 Environment variables 的 runner 环境值。
           # Use a dedicated key to avoid the legacy STOCK_LIST environment's two-symbol override.
-          STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '1303.TW,2408.TW,2603.TW,2409.TW,2344.TW,2454.TW,3231.TW,2330.TW,2881.TW' }}
+          TW_STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '' }}
           # Taiwan stock workflow: use US market as global risk context; never default to China A-share/SZSE recap.
           MARKET_REVIEW_REGION: us
           MARKET_REVIEW_COLOR_SCHEME: ${{ vars.MARKET_REVIEW_COLOR_SCHEME || secrets.MARKET_REVIEW_COLOR_SCHEME || 'green_up' }}
@@ -250,14 +250,12 @@ jobs:
           REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'tencent,akshare_sina,efinance,akshare_em' }}
           
         run: |
-          # 解析自选股配置：
-          # 1. Repository/Environment secrets 或 Repository variables（STOCK_LIST_CONFIG）
-          # 2. 同名 Environment variables 注入的 runner 环境变量（STOCK_LIST）
-          # 3. 最小默认值
-          if [ -n "${STOCK_LIST_CONFIG:-}" ]; then
-            export STOCK_LIST="$STOCK_LIST_CONFIG"
-          elif [ -z "${STOCK_LIST:-}" ]; then
-            export STOCK_LIST="600519"
+          # Resolve the single Taiwan watchlist file; an explicit TW_STOCK_LIST
+          # repository/environment variable may override it. No market/API calls occur here.
+          export STOCK_LIST="$(python scripts/load_tw_watchlist.py)"
+          if [ -z "$STOCK_LIST" ]; then
+            echo "::error::Taiwan watchlist is empty; refusing to run analysis"
+            exit 1
           fi
 
           # 处理 LITELLM YAML 配置文件
@@ -274,9 +272,9 @@ jobs:
           MODE="${{ github.event.inputs.mode || 'full' }}"
           
           echo "=========================================="
-          echo "🚀 A股自选股智能分析系统"
+          echo "🚀 台股自選股智能分析系統"
           echo "=========================================="
-          echo "⏰ 时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
+          echo "⏰ 时间: $(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M:%S')"
           echo "🎯 运行模式: $MODE"
           echo "📊 自选股: $STOCK_LIST"
           echo "📝 报告类型: $REPORT_TYPE"
