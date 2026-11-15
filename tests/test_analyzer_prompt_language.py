@@ -204,6 +204,32 @@ class EnglishStockPromptTemplateTestCase(unittest.TestCase):
         self.assertIn("专注于趋势交易", system_prompt)
         self.assertNotIn("Decision Dashboard", system_prompt)
 
+    def test_taiwan_institution_unavailable_is_explicit_in_user_prompt(self) -> None:
+        analyzer = _make_analyzer(legacy=True)
+        context = copy.deepcopy(_rich_context())
+        context["code"] = "2330.TW"
+        context["stock_name"] = "Taiwan Semiconductor"
+        context["fundamental_context"]["institution"] = {
+            "status": "unavailable",
+            "data": {},
+            "errors": ["TPEx 官方端點回應 HTTP 403"],
+        }
+        fake_cfg = SimpleNamespace(news_max_age_days=3, news_strategy_profile="short")
+
+        with patch("src.analyzer.get_config", return_value=fake_cfg):
+            prompt = analyzer._format_prompt(
+                context, "Taiwan Semiconductor", news_context=None, report_language="zh"
+            )
+
+        self.assertIn("台股三大法人資料狀態", prompt)
+        self.assertIn("不可取得（UNAVAILABLE）", prompt)
+        self.assertIn("證交所／櫃買中心官方三大法人買賣超統計", prompt)
+        self.assertIn("TPEx 官方端點回應 HTTP 403", prompt)
+        self.assertIn("不得將任何法人數值寫成 0", prompt)
+        self.assertIn("不得根據缺失資料推斷外資、投信、自營商", prompt)
+        self.assertNotIn("| 外陸資（不含外資自營商） | 0 |", prompt)
+        self.assertNotIn("| 投信 | 0 |", prompt)
+
     def test_english_audit_markers_match_english_prompt_headers(self) -> None:
         markers = {
             marker["marker_name"]: marker["text"]
