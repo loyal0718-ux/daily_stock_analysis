@@ -8,7 +8,7 @@ import pytest
 from scripts.load_tw_watchlist import (
     WatchlistConfigError,
     load_watchlist,
-    resolve_watchlist,
+    load_watchlist_config,
 )
 
 
@@ -33,14 +33,55 @@ def test_disabled_instrument_is_not_in_runtime_list(tmp_path: Path) -> None:
     assert load_watchlist(path) == ["2330.TW"]
 
 
-def test_explicit_override_is_normalized_and_taiwan_only() -> None:
-    assert resolve_watchlist(override="2330, 1303.TW；0050") == [
-        "2330.TW", "1303.TW", "0050.TW",
-    ]
+def test_instrument_metadata_is_available_without_creating_alert_rules() -> None:
+    items = load_watchlist_config()
+    assert items[0]["symbol"] == "1303.TW"
+    assert items[0]["monitoring"] == {
+        "alert_price": None, "stop_loss": None, "take_profit": None,
+    }
+    assert all(item["data_source"] == "auto" for item in items)
+
+
+def test_invalid_monitoring_thresholds_fail_closed(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [{
+            "symbol": "2330", "name": "台積電", "market": "tw", "enabled": True,
+            "monitoring": {"alert_price": 0, "stop_loss": None, "take_profit": None},
+        }],
+    }), encoding="utf-8")
     with pytest.raises(WatchlistConfigError):
-        resolve_watchlist(override="AAPL")
+        load_watchlist_config(path)
+
+
+def test_stop_loss_must_be_below_take_profit(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [{
+            "symbol": "2330", "name": "台積電", "market": "tw", "enabled": True,
+            "monitoring": {"alert_price": None, "stop_loss": 110, "take_profit": 100},
+        }],
+    }), encoding="utf-8")
     with pytest.raises(WatchlistConfigError):
-        resolve_watchlist(override="2330,2330.TW")
+        load_watchlist_config(path)
+
+
+def test_unsupported_data_source_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [{
+            "symbol": "2330", "name": "台積電", "market": "tw", "enabled": True,
+            "data_source": "fugle",
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(WatchlistConfigError):
+        load_watchlist_config(path)
 
 
 @pytest.mark.parametrize("payload", [
