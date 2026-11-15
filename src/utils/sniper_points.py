@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
@@ -18,7 +19,7 @@ def parse_sniper_value(value: Any) -> Optional[float]:
         return None
     if isinstance(value, (int, float)):
         parsed = float(value)
-        return parsed if parsed > 0 else None
+        return parsed if math.isfinite(parsed) and parsed > 0 else None
 
     text = str(value).replace(",", "").replace("，", "").strip()
     if not text or text in {"-", "—", "N/A"}:
@@ -44,7 +45,7 @@ def parse_sniper_value(value: Any) -> Optional[float]:
         if valid_numbers:
             try:
                 parsed = float(valid_numbers[-1])
-                return parsed if parsed > 0 else None
+                return parsed if math.isfinite(parsed) and parsed > 0 else None
             except ValueError:
                 pass
 
@@ -64,7 +65,7 @@ def parse_sniper_value(value: Any) -> Optional[float]:
     if valid_numbers:
         try:
             parsed = float(valid_numbers[-1])
-            return parsed if parsed > 0 else None
+            return parsed if math.isfinite(parsed) and parsed > 0 else None
         except ValueError:
             pass
     return None
