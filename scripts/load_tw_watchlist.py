@@ -10,7 +10,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "config" / "tw_watchlist.json"
-SYMBOL_RE = re.compile(r"^\\d{4,6}(?:\\.TW)?$", re.IGNORECASE)
+SYMBOL_RE = re.compile(r"^\d{4,6}(?:\.TW)?$", re.IGNORECASE)
 ALLOWED_MONITORING_FIELDS = {"alert_price", "stop_loss", "take_profit"}
 
 
