@@ -1134,6 +1134,7 @@ def stabilize_decision_with_structure(
     result: "AnalysisResult",
     trend_result: Any = None,
     fundamental_context: Optional[Dict[str, Any]] = None,
+    turnaround_signal: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Calibrate aggressive buy/sell advice with price levels and capital flow.
@@ -1181,9 +1182,11 @@ def stabilize_decision_with_structure(
         )
 
         flow_bias, flow_reason = _capital_flow_bias_with_status(fundamental_context)
+        turnaround_status = str((turnaround_signal or {}).get("status") or "")
+        early_rebound_setup = turnaround_status in {"probe_candidate", "breakout_wait_retest", "rebound_confirmed", "trend_confirmed"} and not _has_structural_risk_alert(result)
         if flow_bias == "unavailable":
             if isinstance(fundamental_context, dict) and "capital_flow" in fundamental_context:
-                if decision_type == "buy" or advice_decision_type == "buy":
+                if (decision_type == "buy" or advice_decision_type == "buy") and not early_rebound_setup:
                     _downgrade_buy_without_capital_flow(
                         result,
                         language,
@@ -1192,7 +1195,7 @@ def stabilize_decision_with_structure(
                         resistance=resistance,
                         flow_status=flow_reason,
                     )
-                else:
+                elif not early_rebound_setup:
                     _set_decision_stability_unavailable(
                         result,
                         language,
@@ -1201,7 +1204,8 @@ def stabilize_decision_with_structure(
                         resistance=resistance,
                         flow_status=flow_reason,
                     )
-            return
+            if not early_rebound_setup:
+                return
 
         if current_price is None:
             return
@@ -1234,7 +1238,7 @@ def stabilize_decision_with_structure(
                     resistance=resistance,
                     flow_bias=flow_bias,
                 )
-            elif flow_bias == "outflow" and not breakout:
+            elif flow_bias == "outflow" and not breakout and not early_rebound_setup:
                 _downgrade_to_structural_hold(
                     result,
                     language,
@@ -4341,6 +4345,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
                     result,
                     context.get("trend_analysis"),
                     context.get("fundamental_context"),
+                    turnaround_signal=context.get("turnaround_signal"),
                 )
 
                 # 内容完整性校验（可选）

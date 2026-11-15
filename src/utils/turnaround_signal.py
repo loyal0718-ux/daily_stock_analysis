@@ -98,7 +98,7 @@ def detect_turnaround_signal(bars: Iterable[Any]) -> Dict[str, Any]:
     retest_holds = bool(
         breakout_on_previous and prev_close is not None
         and prev_low is not None
-        and prev_low >= breakout_level * 0.99
+        and low >= breakout_level * 0.99
         and close >= breakout_level
     )
     breakout_today = bool(

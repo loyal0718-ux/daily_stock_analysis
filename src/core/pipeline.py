@@ -81,6 +81,7 @@ from src.services.analysis_context_builder import (
     PipelineAnalysisArtifacts,
 )
 from src.services.market_structure_service import MarketStructureService
+from src.utils.turnaround_signal import detect_turnaround_signal
 from src.services.run_diagnostics import (
     activate_run_diagnostic_context,
     current_diagnostic_snapshot,
@@ -439,6 +440,7 @@ class StockAnalysisPipeline:
         query_id: str,
         current_time: Optional[datetime] = None,
         analysis_target: Optional[AnalysisTarget] = None,
+        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
@@ -639,6 +641,7 @@ class StockAnalysisPipeline:
 
             # Step 3: 趋势分析（基于交易理念）— 在 Agent 分支之前执行，供两条路径共用
             trend_result: Optional[TrendAnalysisResult] = None
+            turnaround_signal: Optional[Dict[str, Any]] = None
             try:
                 from src.services.history_loader import get_frozen_target_date
                 _mkt = get_market_for_stock(normalize_stock_code(code))
@@ -647,6 +650,7 @@ class StockAnalysisPipeline:
                 start_date = end_date - timedelta(days=89)  # ~60 trading days for MA60
                 historical_bars = self.db.get_data_range(code, start_date, end_date)
                 if historical_bars:
+                    turnaround_signal = detect_turnaround_signal([bar.to_dict() for bar in historical_bars])
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
                     # Issue #234: Augment with realtime for intraday MA calculation
                     if self.config.enable_realtime_quote and realtime_quote:
@@ -671,6 +675,7 @@ class StockAnalysisPipeline:
                     chip_data,
                     fundamental_context,
                     trend_result,
+                    turnaround_signal=turnaround_signal,
                     market_phase_context=market_phase_context_dict,
                     market_phase_summary=market_phase_summary,
                     daily_market_context=daily_market_context,
@@ -785,6 +790,7 @@ class StockAnalysisPipeline:
                 fundamental_context,
                 market_phase_context=market_phase_context_dict,
                 portfolio_context=portfolio_context,
+                turnaround_signal=turnaround_signal,
             )
             enhanced_context["market_phase_context"] = market_phase_context_dict
             self._attach_daily_market_context(
@@ -895,6 +901,9 @@ class StockAnalysisPipeline:
                 realtime_data = enhanced_context.get('realtime', {})
                 result.current_price = realtime_data.get('price')
                 result.change_pct = realtime_data.get('change_pct')
+                if isinstance(turnaround_signal, dict):
+                    result.dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+                    result.dashboard["turnaround_signal"] = dict(turnaround_signal)
 
             # Step 7.6: chip_structure fallback (Issue #589) and unavailable collapse
             if result:
@@ -904,7 +913,10 @@ class StockAnalysisPipeline:
             if result:
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 action_source_advice = getattr(result, "operation_advice", None)
-                stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                stabilize_decision_with_structure(
+                    result, trend_result, fundamental_context,
+                    turnaround_signal=turnaround_signal,
+                )
                 adjustments = apply_phase_decision_guardrails(
                     result,
                     market_phase_summary=market_phase_summary,
@@ -1010,6 +1022,7 @@ class StockAnalysisPipeline:
         fundamental_context: Optional[Dict[str, Any]] = None,
         market_phase_context: Optional[Dict[str, Any]] = None,
         portfolio_context: Optional[Dict[str, Any]] = None,
+        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         增强分析上下文
@@ -1037,6 +1050,8 @@ class StockAnalysisPipeline:
             enhanced['stock_name'] = realtime_quote.name
         if isinstance(portfolio_context, dict):
             enhanced["portfolio_context"] = dict(portfolio_context)
+        if isinstance(turnaround_signal, dict):
+            enhanced["turnaround_signal"] = dict(turnaround_signal)
 
         # 将运行时搜索窗口透传给 analyzer，避免与全局配置重新读取产生窗口不一致
         enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", 3)
@@ -1527,6 +1542,8 @@ class StockAnalysisPipeline:
             }
             if isinstance(portfolio_context, dict):
                 initial_context["portfolio_context"] = dict(portfolio_context)
+            if isinstance(turnaround_signal, dict):
+                initial_context["turnaround_signal"] = dict(turnaround_signal)
             if self.analysis_skills is not None:
                 initial_context["skills"] = self.analysis_skills
             if market_phase_context is not None:
@@ -1726,13 +1743,19 @@ class StockAnalysisPipeline:
                 )
                 action_chain_valid = pipeline_start_action is not None
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
+                if isinstance(turnaround_signal, dict):
+                    result.dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+                    result.dashboard["turnaround_signal"] = dict(turnaround_signal)
                 realtime_data = initial_context.get("realtime_quote", {})
                 if isinstance(realtime_data, dict):
                     result.current_price = realtime_data.get("price")
                     result.change_pct = realtime_data.get("change_pct")
                 action_before_guardrail = getattr(result, "action", None)
                 advice_before_guardrail = getattr(result, "operation_advice", None)
-                stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                stabilize_decision_with_structure(
+                    result, trend_result, fundamental_context,
+                    turnaround_signal=turnaround_signal,
+                )
                 self._refresh_decision_action_for_final_result(
                     result,
                     report_type=report_type.value,

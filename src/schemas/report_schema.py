@@ -339,6 +339,7 @@ class AgentDisagreementExplanation(BaseModel):
 class Dashboard(BaseModel):
     """Dashboard block."""
 
+    turnaround_signal: Optional[Dict[str, Any]] = None
     core_conclusion: Optional[CoreConclusion] = None
     data_perspective: Optional[DataPerspective] = None
     intelligence: Optional[Intelligence] = None

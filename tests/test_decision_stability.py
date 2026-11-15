@@ -340,3 +340,28 @@ def test_refines_hold_pullback_near_support_as_shakeout_watch() -> None:
     assert result.decision_type == "hold"
     assert result.operation_advice == "洗盘观察"
     assert "更适合按洗盘观察处理" in result.risk_warning
+
+
+
+def test_turnaround_probe_prevents_outflow_alone_from_vetoing_small_entry() -> None:
+    result = _result(decision_type="buy", operation_advice="買入", score=66, current_price=32.0)
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _fund_flow(main=-1_000_000, five_day=-2_000_000),
+        turnaround_signal={"status": "probe_candidate", "stage": 1},
+    )
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "買入"
+
+
+def test_turnaround_probe_prevents_missing_flow_alone_from_vetoing_small_entry() -> None:
+    result = _result(decision_type="buy", operation_advice="買入", score=66, current_price=32.0)
+    stabilize_decision_with_structure(
+        result,
+        SimpleNamespace(support_levels=[30.0], resistance_levels=[34.0]),
+        _unsupported_fund_flow(),
+        turnaround_signal={"status": "probe_candidate"},
+    )
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "買入"
