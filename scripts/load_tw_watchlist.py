@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Resolve the central Taiwan watchlist into the legacy STOCK_LIST string.
 
-An explicit TW_STOCK_LIST_CONFIG environment override wins. Otherwise the
-versioned config/tw_watchlist.json file is authoritative. This script performs
-local validation only; it never calls market-data or AI APIs.
+The versioned config/tw_watchlist.json file is authoritative. This script
+performs local validation only; it never calls market-data or AI APIs.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -87,9 +85,7 @@ def resolve_watchlist(config_path: Path = DEFAULT_CONFIG, override: str | None =
 
 def main() -> int:
     try:
-        symbols = resolve_watchlist(
-            override=os.environ.get("TW_STOCK_LIST_CONFIG")
-        )
+        symbols = load_watchlist()
     except WatchlistConfigError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
