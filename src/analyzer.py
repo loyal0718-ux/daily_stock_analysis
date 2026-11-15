@@ -333,7 +333,7 @@ def _extract_sniper_price(value: Any) -> Optional[float]:
         return number if math.isfinite(number) and number > 0 else None
     if not isinstance(value, str):
         return None
-    for match in re.finditer(r"(?<![A-Za-z])(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", value):
+    for match in re.finditer(r"(?<![A-Za-z])[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", value):
         prefix = value[:match.start()].rstrip()
         suffix = value[match.end():].lstrip()
         if re.search(r"(?:MA|均線)$", prefix, re.IGNORECASE):
@@ -381,6 +381,9 @@ def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
         entries = [prices[key] for key in ("ideal_buy", "secondary_buy") if prices[key] is not None]
         stop = prices["stop_loss"]
         target = prices["take_profit"]
+        for required_key in ("ideal_buy", "stop_loss", "take_profit"):
+            if prices[required_key] is None:
+                invalid.append(f"dashboard.battle_plan.sniper_points.{required_key}")
         if stop is not None and any(stop >= entry for entry in entries):
             invalid.append("dashboard.battle_plan.sniper_points.stop_loss")
         if target is not None and any(target <= entry for entry in entries):
