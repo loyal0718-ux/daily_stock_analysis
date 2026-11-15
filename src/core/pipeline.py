@@ -3175,6 +3175,7 @@ class StockAnalysisPipeline:
             metadata={
                 "query_id": query_id,
                 "trigger_source": self.query_source,
+                "realtime_quote_enabled": bool(getattr(self.config, "enable_realtime_quote", False)),
             },
             portfolio_context=dict(portfolio_context) if isinstance(portfolio_context, dict) else None,
         )
@@ -3225,6 +3226,7 @@ class StockAnalysisPipeline:
             metadata={
                 "query_id": query_id,
                 "trigger_source": self.query_source,
+                "realtime_quote_enabled": bool(getattr(self.config, "enable_realtime_quote", False)),
             },
             portfolio_context=dict(portfolio_context) if isinstance(portfolio_context, dict) else None,
         )
