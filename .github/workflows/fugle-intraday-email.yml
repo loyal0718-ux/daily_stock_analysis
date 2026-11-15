@@ -30,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Fetch nine Fugle quotes and email snapshot
+      - name: Fetch configured Fugle quotes and email snapshot
         env:
           FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
           EMAIL_SENDER: ${{ vars.EMAIL_SENDER || secrets.EMAIL_SENDER }}
@@ -39,9 +39,11 @@ jobs:
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || '台股儀表板' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Dedicated name avoids the legacy STOCK_LIST environment override.
-          STOCK_LIST: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '1303.TW,2408.TW,2603.TW,2409.TW,2344.TW,2454.TW,3231.TW,2330.TW,2881.TW' }}
-        run: python scripts/fugle_intraday_email.py
+          # Same central Taiwan watchlist as the daily report workflow.
+          TW_STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '' }}
+        run: |
+          export STOCK_LIST="$(python scripts/load_tw_watchlist.py)"
+          python scripts/fugle_intraday_email.py
 
       - name: Email workflow failure notice
         if: failure()
