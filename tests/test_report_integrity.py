@@ -143,6 +143,26 @@ class TestCheckContentIntegrity(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("dashboard.battle_plan.sniper_points.stop_loss", missing)
 
+    def test_full_buy_report_requires_entry_stop_and_target_prices(self) -> None:
+        result = AnalysisResult(
+            code="2330.TW",
+            name="台積電",
+            trend_prediction="看多",
+            sentiment_score=70,
+            operation_advice="買入",
+            analysis_summary="偏多",
+            decision_type="buy",
+            dashboard={
+                "core_conclusion": {"one_sentence": "偏多"},
+                "intelligence": {"risk_alerts": []},
+                "battle_plan": {"sniper_points": {"stop_loss": "950元"}},
+            },
+        )
+        ok, missing = check_content_integrity(result, require_complete_buy_plan=True)
+        self.assertFalse(ok)
+        self.assertIn("dashboard.battle_plan.sniper_points.ideal_buy", missing)
+        self.assertIn("dashboard.battle_plan.sniper_points.take_profit", missing)
+
     def test_pass_when_stop_loss_missing_for_sell(self) -> None:
         """Integrity passes when stop_loss missing and decision_type is sell."""
         result = AnalysisResult(
