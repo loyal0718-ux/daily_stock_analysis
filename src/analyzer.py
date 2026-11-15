@@ -4238,6 +4238,20 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
                 result.model_used = model_used
                 result.report_language = report_language
                 normalize_chip_structure_availability(result, context.get("chip"))
+                # Apply deterministic source-backed report guards after LLM parsing.
+                # These helpers existed but were not wired into the live analysis path,
+                # allowing unsupported buy/sell wording and missing price fields to pass
+                # through into the delivered dashboard.
+                fill_price_position_if_needed(
+                    result,
+                    context.get("trend_analysis"),
+                    context.get("realtime"),
+                )
+                stabilize_decision_with_structure(
+                    result,
+                    context.get("trend_analysis"),
+                    context.get("fundamental_context"),
+                )
 
                 # 内容完整性校验（可选）
                 if not config.report_integrity_enabled:
