@@ -2110,6 +2110,7 @@ def main() -> int:
                         "no_report",
                         "empty_stock_list",
                         "report_save_failed",
+                        "partial_stock_analysis",
                     }:
                         return 1
         else:
