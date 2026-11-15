@@ -42,6 +42,47 @@ def _validate_symbols(values: Iterable[object]) -> list[str]:
     return symbols
 
 
+def _validate_instrument(item: dict) -> str:
+    if item.get("market") != "tw":
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} is not tagged market='tw'"
+        )
+    if not isinstance(item.get("enabled"), bool):
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} must have boolean enabled"
+        )
+    name = item.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} must have a non-empty name"
+        )
+    data_source = item.get("data_source", "auto")
+    if data_source not in {"auto", "yfinance", "fugle"}:
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} has unsupported data_source: {data_source!r}"
+        )
+    monitoring = item.get("monitoring", {})
+    if not isinstance(monitoring, dict):
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} monitoring must be an object"
+        )
+    allowed_thresholds = {"alert_price", "stop_loss", "take_profit"}
+    unknown = set(monitoring) - allowed_thresholds
+    if unknown:
+        raise WatchlistConfigError(
+            f"Instrument {item.get('symbol')!r} has unknown monitoring fields: {sorted(unknown)}"
+        )
+    for field in allowed_thresholds:
+        value = monitoring.get(field)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0
+        ):
+            raise WatchlistConfigError(
+                f"Instrument {item.get('symbol')!r} {field} must be a positive number or null"
+            )
+    return _normalize_symbol(item.get("symbol"))
+
+
 def load_watchlist(config_path: Path = DEFAULT_CONFIG) -> list[str]:
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -55,19 +96,16 @@ def load_watchlist(config_path: Path = DEFAULT_CONFIG) -> list[str]:
     if not isinstance(instruments, list):
         raise WatchlistConfigError("'instruments' must be a list")
     enabled_symbols: list[str] = []
+    seen: set[str] = set()
     for item in instruments:
         if not isinstance(item, dict):
             raise WatchlistConfigError("Each instrument must be an object")
-        if item.get("market") != "tw":
-            raise WatchlistConfigError(
-                f"Instrument {item.get('symbol')!r} is not tagged market='tw'"
-            )
-        if not isinstance(item.get("enabled"), bool):
-            raise WatchlistConfigError(
-                f"Instrument {item.get('symbol')!r} must have boolean enabled"
-            )
+        symbol = _validate_instrument(item)
+        if symbol in seen:
+            raise WatchlistConfigError(f"Duplicate symbol: {symbol}")
+        seen.add(symbol)
         if item["enabled"]:
-            enabled_symbols.append(item.get("symbol"))
+            enabled_symbols.append(symbol)
     return _validate_symbols(enabled_symbols)
 
 
