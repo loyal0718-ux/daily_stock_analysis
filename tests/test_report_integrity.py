@@ -342,16 +342,27 @@ class TestBattlePlanPriceIntegrity(unittest.TestCase):
         self.assertEqual(parse_sniper_value("止損 95元"), 95.0)
 
 
-    def test_price_integrity_uses_same_parser_as_sniper_point_output(self) -> None:
-        result = self._result("buy", {
+    def test_buy_range_requires_stop_below_lowest_entry_and_target_above_highest(self) -> None:
+        unsafe = self._result("buy", {
             "ideal_buy": "理想買入區間 98-100元",
             "stop_loss": "止損 99元",
             "take_profit": "目標 110元",
         })
-        ok, missing = check_content_integrity(result)
+        ok, missing = check_content_integrity(unsafe)
+        self.assertFalse(ok)
+        self.assertIn("dashboard.battle_plan.sniper_points.stop_loss", missing)
+        # Display extraction intentionally keeps the upper edge as the reference
+        # price, while integrity checks protect the full range.
+        self.assertEqual(extract_sniper_points(unsafe)["ideal_buy"], 100.0)
+
+        safe = self._result("buy", {
+            "ideal_buy": "理想買入區間 98-100元",
+            "stop_loss": "止損 97元",
+            "take_profit": "目標 101元",
+        })
+        ok, missing = check_content_integrity(safe)
         self.assertTrue(ok)
         self.assertEqual(missing, [])
-        self.assertEqual(extract_sniper_points(result)["ideal_buy"], 100.0)
 
 
     def test_buy_plan_accepts_valid_entry_stop_and_target(self) -> None:
