@@ -110,6 +110,9 @@ class TestTwInstitutionReportWiring(unittest.TestCase):
         ctx, _ = self._context("2330.TW", institutional_return=None)
         self.assertEqual(ctx["coverage"].get("institution"), "unavailable")
         self.assertEqual(ctx["institution"].get("data"), {})
+        self.assertEqual(ctx["data_quality"], "partial")
+        self.assertIn("institution", ctx["missing_fields"])
+        self.assertTrue(ctx["institution"].get("errors"))
 
     # ---- tw fail-open: fetcher raises -> unavailable, main flow uninterrupted -----
     def test_tw_institution_fail_open_when_fetcher_raises(self):
@@ -123,7 +126,7 @@ class TestTwInstitutionReportWiring(unittest.TestCase):
     def test_us_institution_unchanged_and_tw_fetcher_not_called(self):
         ctx, tw_mock = self._context("AAPL", institutional_return=dict(_FAKE_REC))
         self.assertEqual(ctx["market"], "us")
-        self.assertEqual(ctx["coverage"].get("institution"), "unavailable")
+        self.assertEqual(ctx["coverage"].get("institution"), "not_supported")
         self.assertEqual(ctx["institution"].get("data"), {})
         self.assertEqual(tw_mock.call_count, 0)
 
@@ -132,7 +135,7 @@ class TestTwInstitutionReportWiring(unittest.TestCase):
         for code, market in (("0700.HK", "hk"), ("7203.T", "jp"), ("005930.KS", "kr")):
             ctx, tw_mock = self._context(code, institutional_return=dict(_FAKE_REC))
             self.assertEqual(ctx["market"], market, f"{code} routed to {ctx['market']}")
-            self.assertEqual(ctx["coverage"].get("institution"), "unavailable")
+            self.assertEqual(ctx["coverage"].get("institution"), "not_supported")
             self.assertEqual(tw_mock.call_count, 0)
 
     # ---- fail-open on a fetcher WIRING/init failure (not just a fetch failure) ------
