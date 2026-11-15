@@ -792,6 +792,38 @@ class YfinanceFetcher(BaseFetcher):
             logger.warning(f"[Yfinance] 获取美股指数 {user_code} 实时行情失败: {e}")
             return None
 
+    def get_stock_name(self, stock_code: str) -> Optional[str]:
+        """Resolve names for supported Yahoo-suffix markets, including Taiwan.
+
+        This method intentionally handles only Yahoo Finance symbols; the
+        manager routes Taiwan symbols here and never probes mainland-China-only
+        name providers for .TW / .TWO tickers.
+        """
+        code = (stock_code or "").strip().upper()
+        if not (
+            self._is_us_stock(code)
+            or _is_hk_market(code)
+            or self._is_jp_kr_suffix_stock(code)
+            or self._is_tw_suffix_stock(code)
+        ):
+            return None
+
+        mapped_name = STOCK_NAME_MAP.get(code)
+        if is_meaningful_stock_name(mapped_name, code):
+            return mapped_name
+
+        try:
+            import yfinance as yf
+
+            symbol = self._convert_stock_code(code)
+            info = yf.Ticker(symbol).info or {}
+            name = info.get("shortName") or info.get("longName")
+            if is_meaningful_stock_name(name, code):
+                return str(name).strip()
+        except Exception as exc:
+            logger.debug("[Yfinance] 获取 %s 股票名称失败: %s", code, exc)
+        return None
+
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取美股、港股、日韩台股票或美股指数实时行情数据
