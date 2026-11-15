@@ -1231,13 +1231,26 @@ def run_full_analysis(
             and not skip_futu_stock_analysis
         )
         deferred_failure_result = None
+        if expected_stock_report and not _all_stock_targets_succeeded(stock_codes, results):
+            requested_codes = {str(code) for code in (stock_codes or [])}
+            produced_codes = {str(getattr(result, "code", "")) for result in (results or [])}
+            missing_codes = sorted(requested_codes - produced_codes)
+            _LAST_ANALYSIS_FAILURE_REASON = "partial_stock_analysis"
+            logger.error(
+                "個股分析不完整：預期 %d 檔，成功 %d 檔，缺少：%s。"
+                "本輪報告僅供參考，不得視為完整分析。",
+                len(requested_codes),
+                len(produced_codes & requested_codes),
+                ", ".join(missing_codes) or "unknown",
+            )
+            deferred_failure_result = False
         if expected_stock_report and results and not getattr(
             pipeline, "_last_local_report_path", None
         ):
             _LAST_ANALYSIS_FAILURE_REASON = "report_save_failed"
             save_error = getattr(pipeline, "_last_local_report_error", None) or "unknown error"
             logger.error(
-                "本轮分析已生成个股结果，但汇总报告保存失败，未生成本地报告文件: %s",
+                "本輪分析已生成個股結果，但汇总报告保存失败，未生成本地报告文件: %s",
                 save_error,
             )
             deferred_failure_result = False
