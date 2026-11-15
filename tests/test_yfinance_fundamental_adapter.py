@@ -195,6 +195,27 @@ class TestYfinanceFundamentalAdapter(unittest.TestCase):
         self.assertEqual(report["operating_cash_flow_basis"], "quarterly_statement")
         self.assertEqual(report["roe_basis"], "ttm")
 
+    def test_quarterly_gross_profit_is_not_divided_by_ttm_revenue_fallback(self) -> None:
+        info = {
+            "financialCurrency": "TWD",
+            "currency": "TWD",
+            "totalRevenue": 5000.0,
+            "grossMargins": 0.7726,
+        }
+        income_df = pd.DataFrame({
+            pd.Timestamp("2026-09-30"): {"Gross Profit": 800.0},
+        })
+        ticker = _build_mock_ticker(info, income_df)
+        with patch("yfinance.Ticker", return_value=ticker):
+            bundle = YfinanceFundamentalAdapter().get_fundamental_bundle("2344.TW")
+
+        self.assertEqual(bundle["growth"]["gross_margin"], 77.26)
+        self.assertEqual(bundle["growth"]["gross_margin_basis"], "ttm")
+        report = bundle["earnings"]["financial_report"]
+        self.assertEqual(report["revenue"], 5000.0)
+        self.assertEqual(report["revenue_basis"], "ttm_info")
+
+
     def test_dividends_parsed_from_single_column_dataframe(self) -> None:
         # yfinance 1.2.x returns Ticker.dividends as a single-column DataFrame, not a
         # Series. Without coercion, `.items()` yields (column_name, Series), every event
