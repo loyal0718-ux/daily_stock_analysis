@@ -63,6 +63,20 @@ class _DummyConfig(SimpleNamespace):
 
 
 class MainScheduleModeTestCase(unittest.TestCase):
+    def test_stock_target_completeness_detects_partial_results(self) -> None:
+        self.assertFalse(
+            main._all_stock_targets_succeeded(
+                ["1303.TW", "2408.TW", "2881.TW"],
+                [SimpleNamespace(code="1303.TW"), SimpleNamespace(code="2408.TW")],
+            )
+        )
+        self.assertTrue(
+            main._all_stock_targets_succeeded(
+                ["1303.TW", "2408.TW"],
+                [SimpleNamespace(code="1303.TW"), SimpleNamespace(code="2408.TW")],
+            )
+        )
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
