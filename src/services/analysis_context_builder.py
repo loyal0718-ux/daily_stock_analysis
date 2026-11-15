@@ -119,14 +119,19 @@ class AnalysisContextBuilder:
 def _build_quote_block(artifacts: PipelineAnalysisArtifacts) -> AnalysisContextBlock:
     quote = _to_dict(artifacts.realtime_quote)
     if not quote:
+        realtime_enabled = (artifacts.metadata or {}).get("realtime_quote_enabled")
+        disabled = realtime_enabled is False
+        status = ContextFieldStatus.NOT_SUPPORTED if disabled else ContextFieldStatus.MISSING
+        reason = "realtime_quote_disabled" if disabled else "realtime_quote_missing"
         return AnalysisContextBlock(
-            status=ContextFieldStatus.MISSING,
+            status=status,
             items={
                 "quote": AnalysisContextItem(
-                    status=ContextFieldStatus.MISSING,
-                    missing_reason="realtime_quote_missing",
+                    status=status,
+                    missing_reason=reason,
                 )
             },
+            metadata={"enabled": False} if disabled else {},
         )
 
     source = _source_text(quote.get("source"))
