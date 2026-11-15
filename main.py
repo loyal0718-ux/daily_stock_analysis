@@ -1231,7 +1231,15 @@ def run_full_analysis(
             and not skip_futu_stock_analysis
         )
         deferred_failure_result = None
-        if expected_stock_report and not _all_stock_targets_succeeded(stock_codes, results):
+        strict_stock_completeness_required = (
+            expected_stock_report
+            and not getattr(args, "portfolio", None)
+            and all(
+                str(code).upper().endswith((".TW", ".TWO"))
+                for code in (stock_codes or [])
+            )
+        )
+        if strict_stock_completeness_required and not _all_stock_targets_succeeded(stock_codes, results):
             requested_codes = {str(code) for code in (stock_codes or [])}
             produced_codes = {str(getattr(result, "code", "")) for result in (results or [])}
             missing_codes = sorted(requested_codes - produced_codes)
@@ -1243,7 +1251,6 @@ def run_full_analysis(
                 len(produced_codes & requested_codes),
                 ", ".join(missing_codes) or "unknown",
             )
-            deferred_failure_result = False
         if expected_stock_report and results and not getattr(
             pipeline, "_last_local_report_path", None
         ):
@@ -2049,7 +2056,7 @@ def main() -> int:
                         logger.info("Scheduled analysis already claimed; skipping occurrence %s", scheduled_for)
                         return
 
-                if result is False:
+                if result is False or _LAST_ANALYSIS_FAILURE_REASON == "partial_stock_analysis":
                     reason = _LAST_ANALYSIS_FAILURE_REASON or "unknown"
                     raise RuntimeError(
                         f"scheduled analysis reported failure: {reason}"
@@ -2103,7 +2110,7 @@ def main() -> int:
                     exc,
                 )
             else:
-                if analysis_ok is False:
+                if analysis_ok is False or _LAST_ANALYSIS_FAILURE_REASON == "partial_stock_analysis":
                     if start_serve:
                         logger.error("启动时分析执行失败，Web/API 服务继续运行。")
                     elif _LAST_ANALYSIS_FAILURE_REASON in {
