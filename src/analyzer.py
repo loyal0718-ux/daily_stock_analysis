@@ -343,7 +343,7 @@ def _extract_sniper_price_bounds(value: Any) -> Tuple[Optional[float], Optional[
     text = str(value).replace(",", "").replace("，", "").strip()
     # Only interpret an explicit two-sided range; ordinary single prices keep
     # the shared parser semantics used by report rendering.
-    matches = re.findall(r"(?<![A-Za-z])(?<![A-Za-z0-9])([0-9]+(?:\\.[0-9]+)?)\\s*(?:-|－|~|～|至|到)\\s*([0-9]+(?:\\.[0-9]+)?)", text)
+    matches = re.findall(r"(?<![A-Za-z])(?<![A-Za-z0-9])([0-9]+(?:\.[0-9]+)?)\s*(?:-|－|~|～|至|到)\s*([0-9]+(?:\.[0-9]+)?)", text)
     if matches:
         low, high = map(float, matches[-1])
         if math.isfinite(low) and math.isfinite(high) and low > 0 and high > 0:
