@@ -25,8 +25,8 @@ def test_disabled_instrument_is_not_in_runtime_list(tmp_path: Path) -> None:
         "schema_version": 1,
         "market": "tw",
         "instruments": [
-            {"symbol": "2330", "market": "tw", "enabled": True},
-            {"symbol": "1303.TW", "market": "tw", "enabled": False},
+            {"symbol": "2330", "name": "台積電", "market": "tw", "enabled": True},
+            {"symbol": "1303.TW", "name": "南亞", "market": "tw", "enabled": False},
         ],
     }), encoding="utf-8")
 
@@ -47,10 +47,10 @@ def test_explicit_override_is_normalized_and_taiwan_only() -> None:
     {"schema_version": 1, "market": "cn", "instruments": []},
     {"schema_version": 2, "market": "tw", "instruments": []},
     {"schema_version": 1, "market": "tw", "instruments": [
-        {"symbol": "600519", "market": "cn", "enabled": True},
+        {"symbol": "600519", "name": "茅台", "market": "cn", "enabled": True},
     ]},
     {"schema_version": 1, "market": "tw", "instruments": [
-        {"symbol": "2330", "market": "tw", "enabled": "true"},
+        {"symbol": "2330", "name": "台積電", "market": "tw", "enabled": "true"},
     ]},
 ])
 def test_invalid_market_or_schema_fails_closed(tmp_path: Path, payload: dict) -> None:
@@ -66,7 +66,67 @@ def test_empty_enabled_watchlist_fails_closed(tmp_path: Path) -> None:
         "schema_version": 1,
         "market": "tw",
         "instruments": [
-            {"symbol": "2330", "market": "tw", "enabled": False},
+            {"symbol": "2330", "name": "台積電", "market": "tw", "enabled": False},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(WatchlistConfigError):
+        load_watchlist(path)
+
+
+
+@pytest.mark.parametrize("monitoring", [
+    {"alert_price": 0},
+    {"stop_loss": -1},
+    {"take_profit": "100"},
+    {"unexpected": 100},
+])
+def test_invalid_per_symbol_monitoring_settings_fail_closed(
+    tmp_path: Path, monitoring: dict
+) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [{
+            "symbol": "2330",
+            "name": "台積電",
+            "market": "tw",
+            "enabled": True,
+            "monitoring": monitoring,
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(WatchlistConfigError):
+        load_watchlist(path)
+
+
+def test_positive_monitoring_thresholds_are_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [{
+            "symbol": "2330",
+            "name": "台積電",
+            "market": "tw",
+            "enabled": True,
+            "monitoring": {
+                "alert_price": 2400,
+                "stop_loss": 2200,
+                "take_profit": 2600,
+            },
+        }],
+    }), encoding="utf-8")
+    assert load_watchlist(path) == ["2330.TW"]
+
+
+def test_duplicate_disabled_symbols_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [
+            {"symbol": "2330", "name": "台積電", "market": "tw", "enabled": True},
+            {"symbol": "2330.TW", "name": "台積電重複", "market": "tw", "enabled": False},
         ],
     }), encoding="utf-8")
     with pytest.raises(WatchlistConfigError):
