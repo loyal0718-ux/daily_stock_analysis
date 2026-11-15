@@ -173,14 +173,22 @@ else
 fi
 
 log "Verifying packaged AkShare calendar data..."
-packaged_akshare_calendar="${packaged_root}/_internal/akshare/file_fold/calendar.json"
-if [[ ! -f "${packaged_akshare_calendar}" ]]; then
-  packaged_akshare_calendar="${packaged_root}/akshare/file_fold/calendar.json"
-fi
-if [[ ! -f "${packaged_akshare_calendar}" ]]; then
-  echo "ERROR: packaged AkShare calendar data not found under ${packaged_root}."
+packaged_akshare_calendar=""
+for candidate in \
+  "${packaged_root}/_internal/akshare/data/calendar.json" \
+  "${packaged_root}/akshare/data/calendar.json" \
+  "${packaged_root}/_internal/akshare/file_fold/calendar.json" \
+  "${packaged_root}/akshare/file_fold/calendar.json"; do
+  if [[ -f "${candidate}" ]]; then
+    packaged_akshare_calendar="${candidate}"
+    break
+  fi
+done
+if [[ -z "${packaged_akshare_calendar}" ]]; then
+  echo "ERROR: packaged AkShare calendar data not found (expected akshare/data/calendar.json) under ${packaged_root}."
   exit 1
 fi
+log "Packaged AkShare calendar: ${packaged_akshare_calendar}"
 
 log "Verifying static asset references (packaged)..."
 packaged_static="${ROOT_DIR}/dist/backend/stock_analysis/_internal/static"
