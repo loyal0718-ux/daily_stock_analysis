@@ -108,6 +108,41 @@ class TestPrefetchStockNames(unittest.TestCase):
         remote_fetcher.get_stock_name.assert_not_called()
         self.assertEqual(manager._stock_name_cache["600519"], "贵州茅台")
 
+    def test_taiwan_static_name_mapping_uses_suffix_symbol(self):
+        manager = DataFetcherManager.__new__(DataFetcherManager)
+        manager._fetchers = []
+        manager.get_realtime_quote = MagicMock()
+
+        name = DataFetcherManager.get_stock_name(
+            manager, "2408.TW", allow_realtime=False
+        )
+
+        self.assertEqual(name, "南亞科")
+        manager.get_realtime_quote.assert_not_called()
+
+    def test_taiwan_name_lookup_never_calls_mainland_china_fetchers(self):
+        manager = DataFetcherManager.__new__(DataFetcherManager)
+        china_fetcher = _FallbackNameFetcher("不應呼叫的中國來源")
+        china_fetcher.name = "AkshareFetcher"
+        yfinance_fetcher = _FallbackNameFetcher("台灣公司名稱")
+        yfinance_fetcher.name = "YfinanceFetcher"
+        manager._fetchers = [china_fetcher, yfinance_fetcher]
+        manager.get_realtime_quote = MagicMock()
+
+        with patch.dict("data_provider.base.STOCK_NAME_MAP", {}, clear=True):
+            with patch("data_provider.base.get_index_stock_name", return_value=None):
+                with patch.object(
+                    DataFetcherManager, "_is_fetcher_available", return_value=True
+                ):
+                    name = DataFetcherManager.get_stock_name(
+                        manager, "6488.TW", allow_realtime=False
+                    )
+
+        self.assertEqual(name, "台灣公司名稱")
+        self.assertEqual(china_fetcher.calls, [])
+        self.assertEqual(yfinance_fetcher.calls, ["6488.TW"])
+
+
     def test_get_stock_name_prefers_index_mapping_before_remote_fetchers(self):
         manager = DataFetcherManager.__new__(DataFetcherManager)
         remote_fetcher = MagicMock()
