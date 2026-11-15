@@ -337,6 +337,8 @@ class TestBattlePlanPriceIntegrity(unittest.TestCase):
         self.assertIsNone(parse_sniper_value(True))
         self.assertIsNone(parse_sniper_value(False))
         self.assertIsNone(parse_sniper_value("-5元"))
+        self.assertIsNone(parse_sniper_value(float("inf")))
+        self.assertIsNone(parse_sniper_value(float("nan")))
         self.assertEqual(parse_sniper_value("止損 95元"), 95.0)
 
 
