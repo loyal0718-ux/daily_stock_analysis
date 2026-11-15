@@ -4154,73 +4154,78 @@ class DataFetcherManager:
                 ["not supported for offshore market"],
             )
 
-        # institution: tw (台股) has a free official 三大法人 (institutional net buy/sell)
-        # feed (TWSE T86 / TPEx OpenAPI); every other offshore market keeps not_supported.
-        # tw-only + strictly additive + fail-open: any error or no-data -> not_supported,
-        # which never interrupts the main analysis. Raw net figures only — no derived
-        # signal / score / schema (per the v2 scope confirmed on issue #1777).
+        # Taiwan has an applicable official TWSE/TPEx feed. Distinguish an unavailable
+        # attempt from a market that genuinely has no supported institutional feed.
         tw_record = None
-        if market == "tw":
-            fetcher = getattr(self, "_tw_institutional_fetcher", None)
+        institution_errors = []
+        if market == 'tw':
+            fetcher = getattr(self, '_tw_institutional_fetcher', None)
             if fetcher is None:
-                # Wiring (import + construct) is a one-time op; a failure here is a
-                # programming / deploy bug, so log it LOUD (error). Still fail-open
-                # (never interrupt the main analysis — a hard requirement of #1777).
                 try:
                     from data_provider.tw_institutional_fetcher import TwInstitutionalFetcher
 
                     fetcher = TwInstitutionalFetcher()
                     self._tw_institutional_fetcher = fetcher
-                except Exception as exc:  # noqa: BLE001 - wiring failure: loud but fail-open
-                    logger.error("[tw-inst] fetcher init failed (wiring bug?) code=%s: %s", stock_code, exc)
+                except Exception as exc:  # noqa: BLE001 - fail-open
+                    logger.error('[tw-inst] fetcher init failed code=%s: %s', stock_code, exc)
+                    institution_errors.append('官方三大法人資料抓取器初始化失敗')
                     fetcher = None
-            # fetch_timeout == 0 disables per-fetch fundamental fetches (same as valuation /
-            # bundle above, which gate on fetch_timeout); honour that for institution too so
-            # the FUNDAMENTAL_FETCH_TIMEOUT_SECONDS=0 config semantic is not bypassed.
-            if fetcher is not None and fetch_timeout > 0:
-                # The tw institution block is a WHOLE-MARKET download (~4-5s), far slower
-                # than the per-symbol quote/bundle fetches, and it is the LAST offshore
-                # block. When enabled, give it the full REMAINING stage budget rather than
-                # the ~3s per-fetch cap that starves it and makes the first/only stock of a
-                # run coin-flip between ok and not_supported. Bounded by the stage deadline
-                # via _run_with_retry, so it fails open (never blocks).
+
+            if fetch_timeout <= 0:
+                institution_errors.append('官方三大法人資料抓取依設定停用')
+            elif fetcher is not None:
                 inst_timeout = max(stage_timeout - (time.time() - start_ts), 0.0)
                 if inst_timeout > 0:
                     tw_record, inst_err, _inst_ms = self._run_with_retry(
                         lambda: fetcher.get_institutional_net(stock_code),
                         inst_timeout,
-                        "fundamental_tw_institution",
+                        'fundamental_tw_institution',
                     )
                     if inst_err:
-                        logger.warning("[tw-inst] fetch failed/timeout code=%s: %s", stock_code, inst_err)
+                        logger.warning('[tw-inst] fetch failed/timeout code=%s: %s', stock_code, inst_err)
+                        institution_errors.append(f'官方三大法人資料抓取失敗：{inst_err}')
                 else:
-                    tw_record = None
-        # status 'ok' only when the record carries all core net figures (a genuine 0 is
-        # kept — 0 is not None); None / missing core field / fetch failure -> not_supported.
-        _tw_core = ("foreign_net", "trust_net", "dealer_net", "total_net")
-        if tw_record is not None and all(tw_record.get(key) is not None for key in _tw_core):
-            institution_status = "ok"
-            result_ctx["institution"] = self._build_fundamental_block(
-                "ok",
-                {
-                    "foreign_net": tw_record.get("foreign_net"),
-                    "trust_net": tw_record.get("trust_net"),
-                    "dealer_net": tw_record.get("dealer_net"),
-                    "total_net": tw_record.get("total_net"),
-                    "unit": tw_record.get("unit"),
-                    "date": tw_record.get("date"),
-                    "source": tw_record.get("source"),
-                },
-                [{"provider": tw_record.get("source", "tw-institutional"), "result": "ok", "duration_ms": 0}],
-                [],
-            )
+                    institution_errors.append('官方三大法人資料抓取逾時，未取得有效資料')
+            elif not institution_errors:
+                institution_errors.append('官方三大法人資料抓取器不可用')
+
+            _tw_core = ('foreign_net', 'trust_net', 'dealer_net', 'total_net')
+            if tw_record is not None and all(tw_record.get(key) is not None for key in _tw_core):
+                institution_status = 'ok'
+                result_ctx['institution'] = self._build_fundamental_block(
+                    'ok',
+                    {
+                        'foreign_net': tw_record.get('foreign_net'),
+                        'trust_net': tw_record.get('trust_net'),
+                        'dealer_net': tw_record.get('dealer_net'),
+                        'total_net': tw_record.get('total_net'),
+                        'unit': tw_record.get('unit'),
+                        'date': tw_record.get('date'),
+                        'source': tw_record.get('source'),
+                    },
+                    [{'provider': tw_record.get('source', 'tw-institutional'), 'result': 'ok', 'duration_ms': 0}],
+                    [],
+                )
+            else:
+                institution_status = 'unavailable'
+                if tw_record is not None:
+                    missing = [key for key in _tw_core if tw_record.get(key) is None]
+                    institution_errors.append('官方三大法人資料缺少必要欄位：' + ', '.join(missing))
+                elif not institution_errors:
+                    institution_errors.append('官方三大法人資料暫無有效回應（可能休市、尚未更新或來源暫時不可用）')
+                result_ctx['institution'] = self._build_fundamental_block(
+                    'unavailable',
+                    {},
+                    [{'provider': 'TWSE/TPEx', 'result': 'unavailable', 'duration_ms': 0}],
+                    institution_errors,
+                )
         else:
-            institution_status = "not_supported"
-            result_ctx["institution"] = self._build_fundamental_block(
-                "not_supported",
+            institution_status = 'not_supported'
+            result_ctx['institution'] = self._build_fundamental_block(
+                'not_supported',
                 {},
-                [{"provider": "fundamental_pipeline", "result": "not_supported", "duration_ms": 0}],
-                ["not supported for offshore market"],
+                [{'provider': 'fundamental_pipeline', 'result': 'not_supported', 'duration_ms': 0}],
+                ['台灣以外市場不適用 TWSE/TPEx 三大法人資料'],
             )
 
         result_ctx["belong_boards"] = belong_boards or futu_boards
@@ -4245,6 +4250,7 @@ class DataFetcherManager:
             "valuation": valuation_status,
             "growth": growth_status,
             "earnings": earnings_status,
+            "institution": institution_status,
             "capital_flow": capital_flow_status,
             "boards": boards_status,
         }
@@ -4257,7 +4263,7 @@ class DataFetcherManager:
         if all(value == "not_supported" for value in status_values):
             result_ctx["status"] = "not_supported"
             result_ctx["data_quality"] = "unavailable"
-        elif "failed" in status_values or "partial" in status_values:
+        elif any(value in ("failed", "partial", "unavailable", "disabled") for value in status_values) or institution_status in ("unavailable", "disabled"):
             result_ctx["status"] = "partial"
             result_ctx["data_quality"] = "partial"
         else:
