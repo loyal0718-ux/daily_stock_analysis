@@ -172,9 +172,9 @@ const findTurnaroundSignal = (value: unknown, depth = 0): TurnaroundSignalView |
 };
 
 const turnaroundLabels = {
-  zh: { title: '止跌反彈偵測', stage1: '第一階段｜賣壓衰竭', stage2: '第二階段｜反彈確認', stage3: '第三階段｜趨勢確認', wait: '觀察中', probe: '可評估 20～25% 試單', retest: '突破成立，等待隔日回測', add: '回測守穩，可評估再投入 30%', reserve: '趨勢改善，評估剩餘資金', invalid: '止跌假設失效，重新評估風險', reason: '判斷依據', allocation: '計畫資金分配' },
-  en: { title: 'Rebound Detection', stage1: 'Stage 1 · Selling exhaustion', stage2: 'Stage 2 · Rebound confirmation', stage3: 'Stage 3 · Trend confirmation', wait: 'Watching', probe: 'Consider a 20–25% probe', retest: 'Breakout detected; wait for next-session retest', add: 'Retest held; consider adding 30%', reserve: 'Trend improving; assess remaining reserve', invalid: 'Setup invalidated; reassess risk', reason: 'Evidence', allocation: 'Planned capital allocation' },
-  ko: { title: '하락 안정·반등 감지', stage1: '1단계 · 매도 압력 소진', stage2: '2단계 · 반등 확인', stage3: '3단계 · 추세 확인', wait: '관찰 중', probe: '20~25% 시험 진입 검토', retest: '돌파 감지; 다음 거래일 되돌림 확인 대기', add: '되돌림 지지 확인; 30% 추가 검토', reserve: '추세 개선; 잔여 자금 검토', invalid: '조건 무효; 위험 재평가', reason: '판단 근거', allocation: '계획 자금 배분' },
+  zh: { title: '止跌反彈偵測', stage1: '第一階段｜賣壓衰竭', stage2: '第二階段｜反彈確認', stage3: '第三階段｜趨勢確認', wait: '觀察中', probe: '可評估 20～25% 試單', retest: '突破成立，等待隔日回測', add: '回測守穩，可評估再投入 30%', reserve: '趨勢改善，評估剩餘資金', invalid: '止跌假設失效，重新評估風險', reason: '判斷依據', allocation: '計畫資金分配', probePct: '試單', confirmPct: '確認', reservePct: '保留', disclaimer: '比例以本次預定投入資金為基準，非總資產比例；訊號不代表自動下單。' },
+  en: { title: 'Rebound Detection', stage1: 'Stage 1 · Selling exhaustion', stage2: 'Stage 2 · Rebound confirmation', stage3: 'Stage 3 · Trend confirmation', wait: 'Watching', probe: 'Consider a 20–25% probe', retest: 'Breakout detected; wait for next-session retest', add: 'Retest held; consider adding 30%', reserve: 'Trend improving; assess remaining reserve', invalid: 'Setup invalidated; reassess risk', reason: 'Evidence', allocation: 'Planned capital allocation', probePct: 'Probe', confirmPct: 'Confirmation', reservePct: 'Reserve', disclaimer: 'Percentages apply to the planned trade budget, not total assets. Signals never place orders.' },
+  ko: { title: '하락 안정·반등 감지', stage1: '1단계 · 매도 압력 소진', stage2: '2단계 · 반등 확인', stage3: '3단계 · 추세 확인', wait: '관찰 중', probe: '20~25% 시험 진입 검토', retest: '돌파 감지; 다음 거래일 되돌림 확인 대기', add: '되돌림 지지 확인; 30% 추가 검토', reserve: '추세 개선; 잔여 자금 검토', invalid: '조건 무효; 위험 재평가', reason: '판단 근거', allocation: '계획 자금 배분', probePct: '시험 진입', confirmPct: '확인', reservePct: '보유', disclaimer: '비율은 이번 거래 예정 자금 기준이며 총자산 비율이 아닙니다. 신호가 자동 주문을 실행하지 않습니다.' },
 } as const;
 
 const buildPreparedRelatedBoards = (
@@ -382,11 +382,11 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
                 <div className="mt-3 border-t border-subtle pt-3">
                   <span className="text-xs font-medium text-muted-text">{turnaroundText.allocation}</span>
                   <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
-                    <span>試單 {turnaroundSignal.allocation.probe_pct ?? 25}%</span>
-                    <span>確認 {turnaroundSignal.allocation.confirmation_pct ?? 30}%</span>
-                    <span>保留 {turnaroundSignal.allocation.reserve_pct ?? 45}%</span>
+                    <span>{turnaroundText.probePct} {turnaroundSignal.allocation.probe_pct ?? 25}%</span>
+                    <span>{turnaroundText.confirmPct} {turnaroundSignal.allocation.confirmation_pct ?? 30}%</span>
+                    <span>{turnaroundText.reservePct} {turnaroundSignal.allocation.reserve_pct ?? 45}%</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-muted-text">比例以本次預定投入資金為基準，非總資產比例；訊號不代表自動下單。</p>
+                  <p className="mt-2 text-[11px] text-muted-text">{turnaroundText.disclaimer}</p>
                 </div>
               ) : null}
             </Card>
