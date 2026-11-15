@@ -395,6 +395,7 @@ def check_content_integrity(
     result: "AnalysisResult",
     *,
     require_phase_decision: bool = False,
+    require_complete_buy_plan: bool = False,
 ) -> Tuple[bool, List[str]]:
     """
     Check mandatory fields for report content integrity.
@@ -451,6 +452,14 @@ def check_content_integrity(
         if _is_invalid_stop_loss(stop_loss):
             missing.append("dashboard.battle_plan.sniper_points.stop_loss")
     missing.extend(check_battle_plan_price_integrity(result))
+    if require_complete_buy_plan and result.decision_type == "buy":
+        battle = dash.get("battle_plan")
+        battle = battle if isinstance(battle, dict) else {}
+        sniper = battle.get("sniper_points")
+        sniper = sniper if isinstance(sniper, dict) else {}
+        for key in ("ideal_buy", "stop_loss", "take_profit"):
+            if _extract_sniper_price(sniper.get(key)) is None:
+                missing.append(f"dashboard.battle_plan.sniper_points.{key}")
     if require_phase_decision:
         phase_decision = dash.get("phase_decision")
         phase_decision = phase_decision if isinstance(phase_decision, dict) else {}
@@ -5348,7 +5357,11 @@ Output the complete Decision Dashboard in JSON format."""
         require_phase_decision: bool = False,
     ) -> Tuple[bool, List[str]]:
         """Delegate to module-level check_content_integrity."""
-        return check_content_integrity(result, require_phase_decision=require_phase_decision)
+        return check_content_integrity(
+            result,
+            require_phase_decision=require_phase_decision,
+            require_complete_buy_plan=True,
+        )
 
     def _build_integrity_complement_prompt(self, missing_fields: List[str], report_language: str = "zh") -> str:
         """Build complement instruction for missing mandatory fields."""
