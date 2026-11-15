@@ -19,6 +19,7 @@ except ModuleNotFoundError:
 
 from src.analyzer import AnalysisResult, GeminiAnalyzer, check_content_integrity, apply_placeholder_fill
 from src.utils.sniper_points import extract_sniper_points
+from src.utils.sniper_points import parse_sniper_value
 
 
 class TestCheckContentIntegrity(unittest.TestCase):
@@ -331,6 +332,13 @@ class TestBattlePlanPriceIntegrity(unittest.TestCase):
         ok, missing = check_content_integrity(result)
         self.assertFalse(ok)
         self.assertIn("dashboard.battle_plan.sniper_points.take_profit", missing)
+
+    def test_sniper_parser_rejects_boolean_and_negative_text_prices(self) -> None:
+        self.assertIsNone(parse_sniper_value(True))
+        self.assertIsNone(parse_sniper_value(False))
+        self.assertIsNone(parse_sniper_value("-5元"))
+        self.assertEqual(parse_sniper_value("止損 95元"), 95.0)
+
 
     def test_price_integrity_uses_same_parser_as_sniper_point_output(self) -> None:
         result = self._result("buy", {
