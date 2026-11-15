@@ -4,6 +4,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+import re
 import sys
 from pathlib import Path
 import json
@@ -44,7 +45,7 @@ def main():
     codes = list(getattr(config, "stock_list", []) or [])
     if not codes:
         raise RuntimeError("Taiwan watchlist is empty; refusing to fetch quotes or send notifications")
-    invalid_codes = [code for code in codes if not __import__("re").fullmatch(r"\\d{4,6}\\.TW", str(code).strip().upper())]
+    invalid_codes = [code for code in codes if not re.fullmatch(r"\d{4,6}\.TW", str(code).strip().upper())]
     if invalid_codes:
         raise RuntimeError(f"Unsupported non-Taiwan symbols in watchlist: {invalid_codes}")
 
