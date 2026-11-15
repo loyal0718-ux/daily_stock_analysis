@@ -77,7 +77,7 @@ def resolve_watchlist(config_path: Path = DEFAULT_CONFIG, override: str | None =
         # subject to the same Taiwan-only validation as the committed config.
         return _validate_symbols(
             token.strip()
-            for token in re.split(r"[,;，、\s]+", override)
+            for token in re.split(r"[,;；，、\s]+", override)
             if token.strip()
         )
     return load_watchlist(config_path)
