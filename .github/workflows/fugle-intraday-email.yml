@@ -39,10 +39,12 @@ jobs:
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || '台股儀表板' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Same central Taiwan watchlist as the daily report workflow.
-          TW_STOCK_LIST_CONFIG: ${{ vars.TW_STOCK_LIST || secrets.TW_STOCK_LIST || '' }}
         run: |
           export STOCK_LIST="$(python scripts/load_tw_watchlist.py)"
+          if [ -z "$STOCK_LIST" ]; then
+            echo "::error::Taiwan watchlist is empty; refusing to send snapshot"
+            exit 1
+          fi
           python scripts/fugle_intraday_email.py
 
       - name: Email workflow failure notice
