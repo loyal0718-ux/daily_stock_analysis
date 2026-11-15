@@ -324,6 +324,70 @@ class _AllModelsFailedError(Exception):
 from src.utils.data_processing import normalize_report_signal_attribution
 
 
+def _extract_sniper_price(value: Any) -> Optional[float]:
+    """Extract the first explicit positive price, ignoring MA periods and percentages."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return number if math.isfinite(number) and number > 0 else None
+    if not isinstance(value, str):
+        return None
+    for match in re.finditer(r"(?<![A-Za-z])(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", value):
+        prefix = value[:match.start()].rstrip()
+        suffix = value[match.end():].lstrip()
+        if re.search(r"(?:MA|均線)$", prefix, re.IGNORECASE):
+            continue
+        if suffix.startswith("%"):
+            continue
+        try:
+            number = float(match.group(0).replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and number > 0:
+            return number
+    return None
+
+
+def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
+    """Return sniper price fields that are structurally invalid.
+
+    Buy plans must place stop-loss below each stated entry and take-profit above
+    each stated entry. Hold plans are deliberately exempt from that ordering:
+    an existing holder may use a trailing stop above the original entry cost.
+    """
+    dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+    battle = dashboard.get("battle_plan")
+    battle = battle if isinstance(battle, dict) else {}
+    sniper = battle.get("sniper_points")
+    sniper = sniper if isinstance(sniper, dict) else {}
+    keys = ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")
+    prices = {key: _extract_sniper_price(sniper.get(key)) for key in keys}
+    invalid: List[str] = []
+
+    for key, raw in ((key, sniper.get(key)) for key in keys):
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            number = float(raw)
+            if not math.isfinite(number) or number <= 0:
+                invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
+        elif isinstance(raw, str) and raw.strip():
+            # A populated numeric-looking level that resolves to zero/negative
+            # is invalid; descriptive placeholders remain untouched.
+            numeric_tokens = re.findall(r"-?\\d+(?:\\.\\d+)?", raw)
+            if numeric_tokens and _extract_sniper_price(raw) is None:
+                invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
+
+    if getattr(result, "decision_type", "") == "buy":
+        entries = [prices[key] for key in ("ideal_buy", "secondary_buy") if prices[key] is not None]
+        stop = prices["stop_loss"]
+        target = prices["take_profit"]
+        if stop is not None and any(stop >= entry for entry in entries):
+            invalid.append("dashboard.battle_plan.sniper_points.stop_loss")
+        if target is not None and any(target <= entry for entry in entries):
+            invalid.append("dashboard.battle_plan.sniper_points.take_profit")
+    return list(dict.fromkeys(invalid))
+
+
 def check_content_integrity(
     result: "AnalysisResult",
     *,
@@ -383,6 +447,7 @@ def check_content_integrity(
         stop_loss = sp.get("stop_loss")
         if _is_invalid_stop_loss(stop_loss):
             missing.append("dashboard.battle_plan.sniper_points.stop_loss")
+    missing.extend(check_battle_plan_price_integrity(result))
     if require_phase_decision:
         phase_decision = dash.get("phase_decision")
         phase_decision = phase_decision if isinstance(phase_decision, dict) else {}
@@ -453,6 +518,7 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             ko="모델이 단계별 신뢰도 근거를 제공하지 않았습니다",
         ),
     }
+    invalid_sniper_prices = set(check_battle_plan_price_integrity(result))
     for field in missing_fields:
         if field == "sentiment_score":
             result.sentiment_score = 50
@@ -486,7 +552,7 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             if _is_invalid_risk_alerts(intelligence.get("risk_alerts")):
                 risk_warning_values = _normalize_risk_warning_values(result.risk_warning)
                 intelligence["risk_alerts"] = risk_warning_values
-        elif field == "dashboard.battle_plan.sniper_points.stop_loss":
+        elif field.startswith("dashboard.battle_plan.sniper_points."):
             if not result.dashboard:
                 result.dashboard = {}
             battle_plan = result.dashboard.get("battle_plan")
@@ -497,8 +563,11 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             if not isinstance(sniper_points, dict):
                 sniper_points = {}
                 battle_plan["sniper_points"] = sniper_points
-            if _is_invalid_stop_loss(sniper_points.get("stop_loss")):
-                sniper_points["stop_loss"] = placeholder
+            price_key = field.rsplit(".", 1)[-1]
+            if price_key in {"ideal_buy", "secondary_buy", "stop_loss", "take_profit"}:
+                current_value = sniper_points.get(price_key)
+                if field in invalid_sniper_prices or (price_key == "stop_loss" and _is_invalid_stop_loss(current_value)):
+                    sniper_points[price_key] = placeholder
         elif field.startswith("dashboard.phase_decision."):
             if not result.dashboard:
                 result.dashboard = {}
