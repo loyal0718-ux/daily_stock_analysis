@@ -1743,7 +1743,14 @@ class Config:
 
             if not litellm_fallback_models and not litellm_fallback_models_explicit:
                 # Backward compat: use gemini_model_fallback when primary is gemini
-                _gemini_fallback = normalize_gemini_fallback_model(os.getenv('GEMINI_MODEL_FALLBACK'))
+                _gemini_fallback_raw = os.getenv('GEMINI_MODEL_FALLBACK')
+                # An explicitly empty value is a safety switch: do not retry another
+                # model/provider after quota exhaustion. Unset retains legacy defaults.
+                _gemini_fallback = (
+                    normalize_gemini_fallback_model(_gemini_fallback_raw)
+                    if _gemini_fallback_raw is None or _gemini_fallback_raw.strip()
+                    else ""
+                )
                 if litellm_model.startswith('gemini/') and _gemini_fallback:
                     _fb = f'gemini/{_gemini_fallback}' if '/' not in _gemini_fallback else _gemini_fallback
                     litellm_fallback_models = [_fb]
