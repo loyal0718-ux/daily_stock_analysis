@@ -332,6 +332,27 @@ def _extract_sniper_price(value: Any) -> Optional[float]:
     return parse_sniper_value(value)
 
 
+def _extract_sniper_price_bounds(value: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Return the low/high bounds for a numeric entry range, or a single level."""
+    if isinstance(value, bool) or value is None:
+        return None, None
+    if isinstance(value, (int, float)):
+        price = _extract_sniper_price(value)
+        return (price, price) if price is not None else (None, None)
+
+    text = str(value).replace(",", "").replace("，", "").strip()
+    # Only interpret an explicit two-sided range; ordinary single prices keep
+    # the shared parser semantics used by report rendering.
+    matches = re.findall(r"(?<![A-Za-z])(?<![A-Za-z0-9])([0-9]+(?:\\.[0-9]+)?)\\s*(?:-|－|~|～|至|到)\\s*([0-9]+(?:\\.[0-9]+)?)", text)
+    if matches:
+        low, high = map(float, matches[-1])
+        if math.isfinite(low) and math.isfinite(high) and low > 0 and high > 0:
+            return min(low, high), max(low, high)
+        return None, None
+    price = _extract_sniper_price(value)
+    return (price, price) if price is not None else (None, None)
+
+
 def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
     """Return sniper price fields that are structurally invalid.
 
@@ -361,15 +382,20 @@ def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
                 invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
 
     if getattr(result, "decision_type", "") == "buy":
-        entries = [prices[key] for key in ("ideal_buy", "secondary_buy") if prices[key] is not None]
+        entry_bounds = [
+            _extract_sniper_price_bounds(sniper.get(key))
+            for key in ("ideal_buy", "secondary_buy")
+            if prices[key] is not None
+        ]
+        lows = [low for low, high in entry_bounds if low is not None]
+        highs = [high for low, high in entry_bounds if high is not None]
         stop = prices["stop_loss"]
         target = prices["take_profit"]
-        # Compare only levels that the report actually supplied. Missing entry/target
-        # data is handled by the existing completeness policy; do not reject
-        # otherwise valid agent fallback dashboards solely for omitted optional levels.
-        if stop is not None and any(stop >= entry for entry in entries):
+        # Protect the entire stated entry range: stop must be below its lowest
+        # price, and target must be above its highest price.
+        if stop is not None and lows and stop >= min(lows):
             invalid.append("dashboard.battle_plan.sniper_points.stop_loss")
-        if target is not None and any(target <= entry for entry in entries):
+        if target is not None and highs and target <= max(highs):
             invalid.append("dashboard.battle_plan.sniper_points.take_profit")
     return list(dict.fromkeys(invalid))
 
