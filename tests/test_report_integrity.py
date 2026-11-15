@@ -18,6 +18,7 @@ except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
 from src.analyzer import AnalysisResult, GeminiAnalyzer, check_content_integrity, apply_placeholder_fill
+from src.utils.sniper_points import extract_sniper_points
 
 
 class TestCheckContentIntegrity(unittest.TestCase):
@@ -330,6 +331,18 @@ class TestBattlePlanPriceIntegrity(unittest.TestCase):
         ok, missing = check_content_integrity(result)
         self.assertFalse(ok)
         self.assertIn("dashboard.battle_plan.sniper_points.take_profit", missing)
+
+    def test_price_integrity_uses_same_parser_as_sniper_point_output(self) -> None:
+        result = self._result("buy", {
+            "ideal_buy": "理想買入區間 98-100元",
+            "stop_loss": "止損 99元",
+            "take_profit": "目標 110元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertTrue(ok)
+        self.assertEqual(missing, [])
+        self.assertEqual(extract_sniper_points(result)["ideal_buy"], 100.0)
+
 
     def test_buy_plan_accepts_valid_entry_stop_and_target(self) -> None:
         result = self._result("buy", {
