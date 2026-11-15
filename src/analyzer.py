@@ -4674,7 +4674,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 ### Three Major Institutional Investors (Taiwan chip filter, net buy/sell, unit: shares)
 | Institution | Net Buy/Sell | Decision Meaning |
 |------|------|----------|
-| Foreign Investors | {institution_data.get('foreign_net', 'N/A')} | Positive = net buying, leans supportive; negative = net selling, leans suppressive |
+| Foreign / Mainland Investors (excluding foreign dealers) | {institution_data.get('foreign_net', 'N/A')} | Positive = net buying, leans supportive; negative = net selling, leans suppressive |
 | Investment Trusts | {institution_data.get('trust_net', 'N/A')} | Persistent trust buying often accompanies medium-term longs |
 | Dealers | {institution_data.get('dealer_net', 'N/A')} | Short-term hedging/proprietary direction reference |
 | Three Institutions Total | {institution_data.get('total_net', 'N/A')} | The most watched chip signal in Taiwan stocks |
@@ -4687,7 +4687,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 ### 三大法人动向（台股筹码过滤器，净买卖超，单位:股）
 | 法人 | 净买卖超 | 决策含义 |
 |------|------|----------|
-| 外资 | {institution_data.get('foreign_net', 'N/A')} | 正值=净买超偏支持，负值=净卖超偏压制 |
+| 外陸資（不含外資自營商） | {institution_data.get('foreign_net', 'N/A')} | 正值=淨買超偏支持，負值=淨賣超偏壓制 |
 | 投信 | {institution_data.get('trust_net', 'N/A')} | 投信持续买超常伴随中线做多 |
 | 自营商 | {institution_data.get('dealer_net', 'N/A')} | 短线避险/自营方向参考 |
 | 三大法人合计 | {institution_data.get('total_net', 'N/A')} | 台股最受关注的筹码信号 |
