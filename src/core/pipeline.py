@@ -1723,6 +1723,10 @@ class StockAnalysisPipeline:
                     )
                     if invalid_buy_plan:
                         result.decision_type = "hold"
+                        # Clear any stale explicit BUY action so the final action
+                        # resolver rebuilds it from the downgraded neutral advice.
+                        result.action = None
+                        result.action_label = None
                         result.operation_advice = localize_operation_advice(
                             "觀望",
                             normalize_report_language(
