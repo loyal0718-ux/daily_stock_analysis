@@ -330,7 +330,7 @@ win-unpacked/
 
 PyInstaller 打包时缺少模块，需要在 Windows 与 macOS 后端构建脚本中同步增加 `--hidden-import`，并对冻结产物执行运行时导入校验。当前脚本会显式安装、冻结并探测 LiteLLM 运行路径需要的 `orjson`；若日志包含 `No module named 'orjson'`，请升级到修复版本并重新构建，不能只在已发布目录中手工安装依赖。
 
-如果日志提示缺少 `akshare/file_fold/calendar.json`，说明后端冻结产物没有完整收集 AkShare package data。请使用仓库当前的 `scripts/build-backend.ps1` 或 `scripts/build-backend-macos.sh` 重新构建；脚本会在生成桌面包前检查该文件，缺失时直接终止构建。
+如果日志提示缺少 AkShare calendar data，先确认当前 AkShare 版本的数据文件路径。新版通常位于 `akshare/data/calendar.json`；旧版可能位于 `akshare/file_fold/calendar.json`。仓库的 `scripts/build-backend.ps1` 与 `scripts/build-backend-macos.sh` 会同时检查新版与旧版路径，并在冻结产物确实缺少日历数据时终止构建。
 
 ### UI 加载空白
 
