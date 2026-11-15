@@ -322,31 +322,14 @@ class _AllModelsFailedError(Exception):
 
 
 from src.utils.data_processing import normalize_report_signal_attribution
+from src.utils.sniper_points import parse_sniper_value
 
 
 def _extract_sniper_price(value: Any) -> Optional[float]:
-    """Extract the first explicit positive price, ignoring MA periods and percentages."""
-    if isinstance(value, bool) or value is None:
+    """Use the same price parser as downstream sniper-point consumers."""
+    if isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return number if math.isfinite(number) and number > 0 else None
-    if not isinstance(value, str):
-        return None
-    for match in re.finditer(r"(?<![A-Za-z])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", value):
-        prefix = value[:match.start()].rstrip()
-        suffix = value[match.end():].lstrip()
-        if re.search(r"(?:MA|均線)$", prefix, re.IGNORECASE):
-            continue
-        if suffix.startswith("%"):
-            continue
-        try:
-            number = float(match.group(0).replace(",", ""))
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(number) and number > 0:
-            return number
-    return None
+    return parse_sniper_value(value)
 
 
 def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
