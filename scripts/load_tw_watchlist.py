@@ -111,6 +111,7 @@ def load_watchlist_config(config_path: Path = DEFAULT_CONFIG) -> list[dict[str, 
     if not isinstance(instruments, list):
         raise WatchlistConfigError("'instruments' must be a list")
     enabled_instruments: list[dict[str, Any]] = []
+    configured_symbols: set[str] = set()
     seen: set[str] = set()
     for item in instruments:
         if not isinstance(item, dict):
