@@ -893,6 +893,35 @@ def _all_stock_targets_succeeded(
         return False
 
 
+def _stock_target_completeness(
+    stock_codes: Optional[List[str]],
+    results: List[Any],
+) -> tuple[List[str], int]:
+    """Return missing requested codes and the number of matched successful results."""
+    requested = {str(code) for code in (stock_codes or [])}
+    produced = {
+        str(getattr(result, "code", "")) for result in (results or [])
+    }
+    return sorted(requested - produced), len(requested & produced)
+
+
+def _build_stock_completeness_warning(
+    stock_codes: Optional[List[str]],
+    results: List[Any],
+) -> Optional[str]:
+    """Build an explicit user-facing warning when a Taiwan stock batch is partial."""
+    requested = sorted({str(code) for code in (stock_codes or [])})
+    missing, succeeded = _stock_target_completeness(requested, results)
+    if not missing:
+        return None
+    return (
+        "⚠️【盤後分析不完整】本次個股報告不可視為完整決策依據\n"
+        f"預期分析：{len(requested)} 檔｜成功：{succeeded} 檔｜失敗／未產出：{len(missing)} 檔\n"
+        f"未完成股票：{', '.join(missing)}\n"
+        "請勿將本輪結果解讀為完整觀察名單；缺漏股票需待補跑或下一輪確認。"
+    )
+
+
 def run_full_analysis(
     config: Config,
     args: argparse.Namespace,
@@ -1239,18 +1268,35 @@ def run_full_analysis(
                 for code in (stock_codes or [])
             )
         )
+        stock_completeness_warning = None
         if strict_stock_completeness_required and not _all_stock_targets_succeeded(stock_codes, results):
-            requested_codes = {str(code) for code in (stock_codes or [])}
-            produced_codes = {str(getattr(result, "code", "")) for result in (results or [])}
-            missing_codes = sorted(requested_codes - produced_codes)
+            missing_codes, succeeded_count = _stock_target_completeness(stock_codes, results)
+            stock_completeness_warning = _build_stock_completeness_warning(stock_codes, results)
             _LAST_ANALYSIS_FAILURE_REASON = "partial_stock_analysis"
+            # A partial Taiwan stock batch is a failed scheduled run, not a successful
+            # report. This prevents the scheduler from recording a successful outcome.
+            deferred_failure_result = False
             logger.error(
                 "個股分析不完整：預期 %d 檔，成功 %d 檔，缺少：%s。"
                 "本輪報告僅供參考，不得視為完整分析。",
-                len(requested_codes),
-                len(produced_codes & requested_codes),
+                len({str(code) for code in (stock_codes or [])}),
+                succeeded_count,
                 ", ".join(missing_codes) or "unknown",
             )
+            if stock_completeness_warning and not args.no_notify and not merge_notification:
+                try:
+                    if pipeline.notifier.is_available():
+                        sent = pipeline.notifier.send(
+                            stock_completeness_warning,
+                            email_send_to_all=True,
+                            route_type="report",
+                        )
+                        logger.info(
+                            "個股分析不完整警示推送%s",
+                            "成功" if sent else "失敗",
+                        )
+                except Exception as notify_error:
+                    logger.warning("個股分析不完整警示推送異常: %s", notify_error)
         if expected_stock_report and results and not getattr(
             pipeline, "_last_local_report_path", None
         ):
@@ -1275,6 +1321,8 @@ def run_full_analysis(
         # Issue #190: 合并推送（个股+大盘复盘）
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
+            if stock_completeness_warning:
+                parts.append(stock_completeness_warning)
             if market_report:
                 parts.append(f"# 📈 大盘复盘\n\n{market_report}")
             if results:
@@ -1318,6 +1366,8 @@ def run_full_analysis(
 
                 # 2. 准备内容 (拼接个股分析和大盘复盘)
                 full_content = ""
+                if stock_completeness_warning:
+                    full_content += f"{stock_completeness_warning}\n\n---\n\n"
 
                 # 添加大盘复盘内容（如果有）
                 if market_report:
