@@ -171,6 +171,12 @@ def _format_zh(payload: Dict[str, Any]) -> str:
     if block_lines:
         lines.append("- 数据块状态：")
         lines.extend(f"  - {line}" for line in block_lines)
+    quote_block = blocks.get("quote") if isinstance(blocks.get("quote"), Mapping) else {}
+    if "realtime_quote_disabled" in _item_missing_reasons(quote_block.get("items")):
+        lines.append(
+            "- 行情说明：即時報價功能已停用，這不代表歷史日線缺失；"
+            "請使用最新完整日線及其日期進行分析，不得宣稱已取得即時價格。"
+        )
     metadata_lines = _metadata_lines(payload, lang="zh")
     if metadata_lines:
         lines.extend(metadata_lines)
@@ -188,6 +194,13 @@ def _format_en(payload: Dict[str, Any]) -> str:
     if block_lines:
         lines.append("- Data block status:")
         lines.extend(f"  - {line}" for line in block_lines)
+    quote_block = blocks.get("quote") if isinstance(blocks.get("quote"), Mapping) else {}
+    if "realtime_quote_disabled" in _item_missing_reasons(quote_block.get("items")):
+        lines.append(
+            "- Quote note: real-time quotes are disabled by configuration; this does not mean "
+            "historical daily bars are missing. Use the latest completed daily bar and its date, "
+            "and do not claim to have a live price."
+        )
     metadata_lines = _metadata_lines(payload, lang="en")
     if metadata_lines:
         lines.extend(metadata_lines)
