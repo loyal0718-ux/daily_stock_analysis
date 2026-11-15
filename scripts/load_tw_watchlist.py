@@ -10,7 +10,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "config" / "tw_watchlist.json"
@@ -83,7 +83,22 @@ def _validate_instrument(item: dict) -> str:
     return _normalize_symbol(item.get("symbol"))
 
 
-def load_watchlist(config_path: Path = DEFAULT_CONFIG) -> list[str]:
+def _positive_optional_number(value: Any, *, field: str, symbol: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise WatchlistConfigError(f"{symbol}: {field} must be a positive number or null")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise WatchlistConfigError(f"{symbol}: {field} must be a positive number or null") from exc
+    if number <= 0:
+        raise WatchlistConfigError(f"{symbol}: {field} must be greater than zero")
+    return number
+
+
+def load_watchlist_config(config_path: Path = DEFAULT_CONFIG) -> list[dict[str, Any]]:
+    """Load validated instrument metadata without fetching quotes or creating alerts."""
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -95,7 +110,7 @@ def load_watchlist(config_path: Path = DEFAULT_CONFIG) -> list[str]:
     instruments = payload.get("instruments")
     if not isinstance(instruments, list):
         raise WatchlistConfigError("'instruments' must be a list")
-    enabled_symbols: list[str] = []
+    enabled_instruments: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in instruments:
         if not isinstance(item, dict):
@@ -107,18 +122,6 @@ def load_watchlist(config_path: Path = DEFAULT_CONFIG) -> list[str]:
         if item["enabled"]:
             enabled_symbols.append(symbol)
     return _validate_symbols(enabled_symbols)
-
-
-def resolve_watchlist(config_path: Path = DEFAULT_CONFIG, override: str | None = None) -> list[str]:
-    if override and override.strip():
-        # Explicit GitHub variable/secret override remains supported, but is
-        # subject to the same Taiwan-only validation as the committed config.
-        return _validate_symbols(
-            token.strip()
-            for token in re.split(r"[,;；，、\s]+", override)
-            if token.strip()
-        )
-    return load_watchlist(config_path)
 
 
 def main() -> int:
