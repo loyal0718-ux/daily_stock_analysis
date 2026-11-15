@@ -4630,6 +4630,13 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             if isinstance(earnings_data, dict)
             else {}
         )
+        growth_block = (
+            fundamental_context.get("growth", {})
+            if isinstance(fundamental_context, dict)
+            else {}
+        )
+        growth_data = growth_block.get("data", {}) if isinstance(growth_block, dict) else {}
+        growth_data = growth_data if isinstance(growth_data, dict) else {}
         dividend_metrics = (
             earnings_data.get("dividend", {})
             if isinstance(earnings_data, dict)
@@ -4642,16 +4649,24 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             ttm_cash = dividend_metrics.get("ttm_cash_dividend_per_share", "N/A")
             ttm_count = dividend_metrics.get("ttm_event_count", "N/A")
             report_date = financial_report.get("report_date", "N/A")
+            revenue_basis = financial_report.get("revenue_basis", "unknown")
+            profit_basis = financial_report.get("net_profit_basis", "unknown")
+            cashflow_basis = financial_report.get("operating_cash_flow_basis", "unknown")
+            roe_basis = financial_report.get("roe_basis", growth_data.get("roe_basis", "unknown"))
+            gross_margin_basis = growth_data.get("gross_margin_basis", "unknown")
             if english:
                 prompt += f"""
 ### Financials and Dividends (value-investing view)
 | Indicator | Value | Note |
 |------|------|------|
 | Latest Report Period | {report_date} | From structured financial report fields |
-| Revenue | {financial_report.get('revenue', 'N/A')} | |
-| Net Profit Attributable to Parent | {financial_report.get('net_profit_parent', 'N/A')} | |
-| Operating Cash Flow | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| Revenue | {financial_report.get('revenue', 'N/A')} | basis={revenue_basis} |
+| Net Profit Attributable to Parent | {financial_report.get('net_profit_parent', 'N/A')} | basis={profit_basis} |
+| Operating Cash Flow | {financial_report.get('operating_cash_flow', 'N/A')} | basis={cashflow_basis} |
+| ROE | {financial_report.get('roe', growth_data.get('roe', 'N/A'))} | basis={roe_basis} |
+| Revenue YoY | {growth_data.get('revenue_yoy', 'N/A')}% | basis={growth_data.get('revenue_yoy_basis', 'unknown')} |
+| Net Profit YoY | {growth_data.get('net_profit_yoy', 'N/A')}% | basis={growth_data.get('net_profit_yoy_basis', 'unknown')} |
+| Gross Margin | {growth_data.get('gross_margin', 'N/A')}% | basis={gross_margin_basis} |
 | TTM Cash Dividend per Share | {ttm_cash} | Cash dividends only, pre-tax |
 | TTM Dividend Yield | {ttm_yield} | Formula: TTM cash dividend per share / current price × 100% |
 | TTM Dividend Events | {ttm_count} | |
@@ -4664,10 +4679,13 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 | 指标 | 数值 | 说明 |
 |------|------|------|
 | 最近报告期 | {report_date} | 来自结构化财报字段 |
-| 营业收入 | {financial_report.get('revenue', 'N/A')} | |
-| 归母净利润 | {financial_report.get('net_profit_parent', 'N/A')} | |
-| 经营现金流 | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| 营业收入 | {financial_report.get('revenue', 'N/A')} | 期间口径={revenue_basis} |
+| 归母净利润 | {financial_report.get('net_profit_parent', 'N/A')} | 期间口径={profit_basis} |
+| 经营现金流 | {financial_report.get('operating_cash_flow', 'N/A')} | 期间口径={cashflow_basis} |
+| ROE | {financial_report.get('roe', growth_data.get('roe', 'N/A'))} | 期间口径={roe_basis} |
+| 营收同比 | {growth_data.get('revenue_yoy', 'N/A')}% | 期间口径={growth_data.get('revenue_yoy_basis', 'unknown')} |
+| 净利同比 | {growth_data.get('net_profit_yoy', 'N/A')}% | 期间口径={growth_data.get('net_profit_yoy_basis', 'unknown')} |
+| 毛利率 | {growth_data.get('gross_margin', 'N/A')}% | 期间口径={gross_margin_basis} |
 | 近12个月每股现金分红 | {ttm_cash} | 仅现金分红、税前口径 |
 | TTM 股息率 | {ttm_yield} | 公式：近12个月每股现金分红 / 当前价格 × 100% |
 | TTM 分红事件数 | {ttm_count} | |
