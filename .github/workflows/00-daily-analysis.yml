@@ -85,17 +85,17 @@ jobs:
           # ==========================================
           # 数据源
           # ==========================================
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          TUSHARE_TOKEN: ''  # CN/HK-only provider; disabled in Taiwan workflow
           # Fugle Taiwan intraday quote API (optional; secret is never printed)
-          FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+          FUGLE_API_KEY: ''  # Taiwan after-hours workflow does not use intraday quotes
           # Tushare Pro 自定义接入地址（可选；指向自建网关或第三方兼容镜像时设置）
-          TUSHARE_HTTP_URL: ${{ vars.TUSHARE_HTTP_URL || secrets.TUSHARE_HTTP_URL }}
+          TUSHARE_HTTP_URL: ''
           # TickFlow（A 股日 K、实时行情、股票列表/名称与大盘复盘增强；不设则走免费源 fallback）
-          TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
-          TICKFLOW_PRIORITY: ${{ vars.TICKFLOW_PRIORITY || secrets.TICKFLOW_PRIORITY }}
-          TICKFLOW_KLINE_ADJUST: ${{ vars.TICKFLOW_KLINE_ADJUST || secrets.TICKFLOW_KLINE_ADJUST }}
-          TICKFLOW_BATCH_DAILY_ENABLED: ${{ vars.TICKFLOW_BATCH_DAILY_ENABLED || secrets.TICKFLOW_BATCH_DAILY_ENABLED }}
-          TICKFLOW_BATCH_SIZE: ${{ vars.TICKFLOW_BATCH_SIZE || secrets.TICKFLOW_BATCH_SIZE }}
+          TICKFLOW_API_KEY: ''  # CN-only provider; disabled in Taiwan workflow
+          TICKFLOW_PRIORITY: ''
+          TICKFLOW_KLINE_ADJUST: ''
+          TICKFLOW_BATCH_DAILY_ENABLED: 'false'
+          TICKFLOW_BATCH_SIZE: '0'
           # Longbridge OpenAPI（美股/港股实时行情字段补充；不设则仅 YFinance/AkShare，无 [Longbridge] 调用）
           LONGBRIDGE_OAUTH_CLIENT_ID: ${{ vars.LONGBRIDGE_OAUTH_CLIENT_ID || secrets.LONGBRIDGE_OAUTH_CLIENT_ID }}
           LONGBRIDGE_OAUTH_TOKEN_CACHE_B64: ${{ secrets.LONGBRIDGE_OAUTH_TOKEN_CACHE_B64 }}
@@ -230,6 +230,9 @@ jobs:
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
           REPORT_SHOW_LLM_MODEL: ${{ vars.REPORT_SHOW_LLM_MODEL || secrets.REPORT_SHOW_LLM_MODEL || 'true' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
+          # This is an after-hours Taiwan report; no intraday quote requests or prefetch.
+          ENABLE_REALTIME_QUOTE: 'false'
+          PREFETCH_REALTIME_QUOTES: 'false'
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TRADING_DAY_CHECK_ENABLED: ${{ vars.TRADING_DAY_CHECK_ENABLED || secrets.TRADING_DAY_CHECK_ENABLED || 'true' }}
