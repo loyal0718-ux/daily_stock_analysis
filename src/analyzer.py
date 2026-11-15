@@ -333,7 +333,7 @@ def _extract_sniper_price(value: Any) -> Optional[float]:
         return number if math.isfinite(number) and number > 0 else None
     if not isinstance(value, str):
         return None
-    for match in re.finditer(r"(?<![A-Za-z])[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", value):
+    for match in re.finditer(r"(?<![A-Za-z])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", value):
         prefix = value[:match.start()].rstrip()
         suffix = value[match.end():].lstrip()
         if re.search(r"(?:MA|均線)$", prefix, re.IGNORECASE):
@@ -373,7 +373,7 @@ def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
         elif isinstance(raw, str) and raw.strip():
             # A populated numeric-looking level that resolves to zero/negative
             # is invalid; descriptive placeholders remain untouched.
-            numeric_tokens = re.findall(r"-?\\d+(?:\\.\\d+)?", raw)
+            numeric_tokens = re.findall(r"-?\d+(?:\.\d+)?", raw)
             if numeric_tokens and _extract_sniper_price(raw) is None:
                 invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
 
