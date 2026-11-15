@@ -271,6 +271,78 @@ class TestCheckContentIntegrity(unittest.TestCase):
         self.assertIn("dashboard.battle_plan.sniper_points.stop_loss", missing)
 
 
+class TestBattlePlanPriceIntegrity(unittest.TestCase):
+    """Numeric sniper levels must be internally consistent."""
+
+    def _result(self, decision_type: str, sniper_points: dict) -> AnalysisResult:
+        return AnalysisResult(
+            code="2330.TW",
+            name="台積電",
+            trend_prediction="震盪",
+            sentiment_score=55,
+            operation_advice="觀望",
+            analysis_summary="測試",
+            decision_type=decision_type,
+            dashboard={
+                "core_conclusion": {"one_sentence": "測試"},
+                "intelligence": {"risk_alerts": []},
+                "battle_plan": {"sniper_points": sniper_points},
+            },
+        )
+
+    def test_buy_plan_rejects_stop_loss_at_or_above_entry(self) -> None:
+        result = self._result("buy", {
+            "ideal_buy": "買入 100 元",
+            "stop_loss": "止損 101 元",
+            "take_profit": "目標 110 元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertFalse(ok)
+        self.assertIn("dashboard.battle_plan.sniper_points.stop_loss", missing)
+
+    def test_buy_plan_rejects_target_at_or_below_entry(self) -> None:
+        result = self._result("buy", {
+            "ideal_buy": 100,
+            "secondary_buy": 98,
+            "stop_loss": 95,
+            "take_profit": "目標價 99 元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertFalse(ok)
+        self.assertIn("dashboard.battle_plan.sniper_points.take_profit", missing)
+
+    def test_buy_plan_accepts_valid_entry_stop_and_target(self) -> None:
+        result = self._result("buy", {
+            "ideal_buy": "100元",
+            "secondary_buy": "98元",
+            "stop_loss": "跌破95元",
+            "take_profit": "目標110元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertTrue(ok)
+        self.assertEqual(missing, [])
+
+    def test_hold_plan_allows_trailing_stop_above_entry(self) -> None:
+        result = self._result("hold", {
+            "ideal_buy": "100元",
+            "stop_loss": "移動停利 108 元",
+            "take_profit": "前高 115 元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertTrue(ok)
+        self.assertEqual(missing, [])
+
+    def test_ma_period_and_percent_are_not_mistaken_for_prices(self) -> None:
+        result = self._result("buy", {
+            "ideal_buy": "MA5附近進場 100元",
+            "stop_loss": "跌破MA20且回撤5%，止損 95元",
+            "take_profit": "前高 110元",
+        })
+        ok, missing = check_content_integrity(result)
+        self.assertTrue(ok)
+        self.assertEqual(missing, [])
+
+
 class TestApplyPlaceholderFill(unittest.TestCase):
     """Placeholder fill tests."""
 
