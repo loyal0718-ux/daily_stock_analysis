@@ -381,9 +381,9 @@ def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
         entries = [prices[key] for key in ("ideal_buy", "secondary_buy") if prices[key] is not None]
         stop = prices["stop_loss"]
         target = prices["take_profit"]
-        for required_key in ("ideal_buy", "stop_loss", "take_profit"):
-            if prices[required_key] is None:
-                invalid.append(f"dashboard.battle_plan.sniper_points.{required_key}")
+        # Compare only levels that the report actually supplied. Missing entry/target
+        # data is handled by the existing completeness policy; do not reject
+        # otherwise valid agent fallback dashboards solely for omitted optional levels.
         if stop is not None and any(stop >= entry for entry in entries):
             invalid.append("dashboard.battle_plan.sniper_points.stop_loss")
         if target is not None and any(target <= entry for entry in entries):
