@@ -101,6 +101,20 @@ def test_invalid_market_or_schema_fails_closed(tmp_path: Path, payload: dict) ->
         load_watchlist(path)
 
 
+def test_duplicate_disabled_symbol_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "watchlist.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "market": "tw",
+        "instruments": [
+            {"symbol": "2330", "name": "台積電", "market": "tw", "enabled": True},
+            {"symbol": "2330.TW", "name": "台積電重複", "market": "tw", "enabled": False},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(WatchlistConfigError):
+        load_watchlist_config(path)
+
+
 def test_empty_enabled_watchlist_fails_closed(tmp_path: Path) -> None:
     path = tmp_path / "watchlist.json"
     path.write_text(json.dumps({
