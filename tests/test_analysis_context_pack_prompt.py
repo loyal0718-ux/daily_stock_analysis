@@ -180,6 +180,30 @@ def test_chinese_summary_renders_low_sensitivity_pack_statuses() -> None:
     assert "阶段数据规则" not in section
 
 
+def test_disabled_realtime_quote_is_not_described_as_missing_daily_data() -> None:
+    pack = _pack()
+    blocks = dict(pack.blocks)
+    blocks["quote"] = AnalysisContextBlock(
+        status=ContextFieldStatus.NOT_SUPPORTED,
+        items={
+            "quote": AnalysisContextItem(
+                status=ContextFieldStatus.NOT_SUPPORTED,
+                missing_reason="realtime_quote_disabled",
+            )
+        },
+        metadata={"enabled": False},
+    )
+    disabled_pack = pack.model_copy(update={"blocks": blocks})
+
+    zh = format_analysis_context_pack_prompt_section(disabled_pack)
+    assert "即時報價功能已停用" in zh
+    assert "不代表歷史日線缺失" in zh
+
+    en = format_analysis_context_pack_prompt_section(disabled_pack, report_language="en")
+    assert "real-time quotes are disabled by configuration" in en
+    assert "historical daily bars are missing" in en
+
+
 def test_english_summary_renders_readable_statuses() -> None:
     section = format_analysis_context_pack_prompt_section(
         _pack(),
