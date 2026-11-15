@@ -1706,15 +1706,50 @@ class StockAnalysisPipeline:
             if result and getattr(self.config, "report_integrity_enabled", False):
                 from src.analyzer import check_content_integrity, apply_placeholder_fill
 
+                is_buy_decision = getattr(result, "decision_type", None) == "buy"
                 pass_integrity, missing = check_content_integrity(
                     result,
                     require_phase_decision=isinstance(market_phase_summary, dict),
+                    require_complete_buy_plan=is_buy_decision,
                 )
                 if not pass_integrity:
                     apply_placeholder_fill(result, missing)
+                    # A buy recommendation is not executable unless entry, stop and
+                    # target are all numeric and internally consistent. Do not let
+                    # placeholder-filled price levels retain a BUY decision.
+                    invalid_buy_plan = is_buy_decision and any(
+                        field.startswith("dashboard.battle_plan.sniper_points.")
+                        for field in missing
+                    )
+                    if invalid_buy_plan:
+                        result.decision_type = "hold"
+                        result.operation_advice = localize_operation_advice(
+                            "觀望",
+                            normalize_report_language(
+                                getattr(result, "report_language", "zh")
+                            ),
+                        )
+                        if isinstance(result.dashboard, dict):
+                            result.dashboard["decision_type"] = "hold"
+                            result.dashboard["operation_advice"] = result.operation_advice
+                            core = result.dashboard.get("core_conclusion")
+                            if not isinstance(core, dict):
+                                core = {}
+                                result.dashboard["core_conclusion"] = core
+                            core["one_sentence"] = (
+                                "買入計畫的進場、停損或目標價未通過完整性檢查，"
+                                "暫不執行買入，等待有效價位補齊。"
+                            )
+                    if isinstance(result.dashboard, dict):
+                        result.dashboard["content_integrity"] = {
+                            "passed": False,
+                            "mode": "agent_weak",
+                            "missing_fields": list(missing),
+                        }
                     logger.info(
-                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全",
+                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全%s",
                         missing,
+                        "；买入计划降级为观望" if invalid_buy_plan else "",
                     )
             # chip_structure fallback (Issue #589), before save_analysis_history
             if result and chip_data is not None:
