@@ -19,6 +19,7 @@ import { resolveLoginRedirect } from './utils/loginRedirect';
 import './App.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
+const DecisionDashboardPage = lazy(() => import('./pages/DecisionDashboardPage'));
 const BacktestPage = lazy(() => import('./pages/BacktestPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -89,6 +90,7 @@ const AppContent: React.FC = () => {
 
 const routeChildren = [
   { path: '/', element: <HomePage /> },
+  { path: '/decision-dashboard', element: <DecisionDashboardPage /> },
   { path: '/chat', element: <ChatPage /> },
   { path: '/portfolio', element: <PortfolioPage /> },
   { path: '/decision-signals', element: <DecisionSignalsPage /> },
