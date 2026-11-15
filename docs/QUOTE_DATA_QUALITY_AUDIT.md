@@ -101,3 +101,10 @@ This update disables realtime quote collection and realtime technical-indicator 
 ## Notification scope clarification (2026-11-15)
 
 Only automatic intraday real-time quote notifications are cancelled. The scheduled intraday Fugle snapshot workflow has had its cron triggers removed; manual dispatch remains available for maintenance/testing. The post-market daily analysis report and its existing Telegram/Email delivery routes are explicitly retained and unchanged. No report-channel environment variable is overridden or disabled by this change.
+
+
+## Official institutional-data definition cross-check (2026-11-15)
+
+The current TWSE T86 page for 2026-11-13 confirms the source field is “外陸資買賣超股數(不含外資自營商)” and separately reports “外資自營商買賣超股數”, “投信買賣超股數”, “自營商買賣超股數”, and “三大法人買賣超股數”. The TPEx official detail page explicitly defines the three-institution total as foreign/mainland investors excluding dealers + investment trusts + dealers. The report prompt now labels the foreign component precisely as 外陸資（不含外資自營商） rather than the over-broad shorthand 外資.
+
+The TWSE public page was discoverable for the 2026-11-13 report. The TPEx OpenAPI endpoint is documented in the official TPEx Swagger catalogue as `GET /tpex_3insti_daily_trading`, but a direct live endpoint request from this verification environment returned HTTP 403. Therefore the production TPEx payload shape is not declared live-verified in this pass; fixture-based parser tests remain the available code-level evidence. Keep fail-open behavior and do not treat a blocked verification request as proof of endpoint failure.
