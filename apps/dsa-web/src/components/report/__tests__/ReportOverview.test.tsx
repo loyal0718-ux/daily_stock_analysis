@@ -115,6 +115,34 @@ describe('ReportOverview', () => {
     expect(screen.queryByText('日线未完成')).not.toBeInTheDocument();
   });
 
+  it('renders the deterministic rebound plan from the dashboard payload', () => {
+    render(
+      <ReportOverview
+        meta={baseMeta}
+        summary={baseSummary}
+        details={{
+          rawResult: {
+            dashboard: {
+              turnaround_signal: {
+                status: 'probe_candidate',
+                stage: 1,
+                action: 'probe_tranche_eligible',
+                reason: '低點未再破底，收盤轉強',
+                allocation: { probe_pct: 25, confirmation_pct: 30, reserve_pct: 45 },
+              },
+            },
+          },
+        }}
+      />,
+    );
+
+    const card = screen.getByTestId('turnaround-signal-card');
+    expect(within(card).getByText('止跌反彈偵測')).toBeInTheDocument();
+    expect(within(card).getByText('第一階段｜賣壓衰竭')).toBeInTheDocument();
+    expect(within(card).getByText('可評估 20～25% 試單')).toBeInTheDocument();
+    expect(within(card).getByText('試單 25%')).toBeInTheDocument();
+  });
+
   it('renders related boards with leading and lagging markers', () => {
     render(
       <ReportOverview
