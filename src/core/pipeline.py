@@ -440,7 +440,6 @@ class StockAnalysisPipeline:
         query_id: str,
         current_time: Optional[datetime] = None,
         analysis_target: Optional[AnalysisTarget] = None,
-        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
@@ -1506,6 +1505,7 @@ class StockAnalysisPipeline:
         portfolio_context: Optional[Dict[str, Any]] = None,
         market_structure_context: Optional[Dict[str, Any]] = None,
         analysis_target: Optional[AnalysisTarget] = None,
+        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Optional[AnalysisResult]:
         """
         使用 Agent 模式分析单只股票。
