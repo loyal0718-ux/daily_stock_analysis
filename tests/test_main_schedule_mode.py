@@ -77,6 +77,31 @@ class MainScheduleModeTestCase(unittest.TestCase):
             )
         )
 
+    def test_stock_completeness_warning_names_missing_symbols_and_counts(self) -> None:
+        warning = main._build_stock_completeness_warning(
+            ["1303.TW", "2408.TW", "2881.TW"],
+            [SimpleNamespace(code="1303.TW"), SimpleNamespace(code="2408.TW")],
+        )
+        self.assertIsNotNone(warning)
+        self.assertIn("預期分析：3 檔｜成功：2 檔｜失敗／未產出：1 檔", warning)
+        self.assertIn("未完成股票：2881.TW", warning)
+        self.assertIn("不可視為完整決策依據", warning)
+
+    def test_stock_completeness_warning_is_absent_for_complete_batch(self) -> None:
+        warning = main._build_stock_completeness_warning(
+            ["1303.TW", "2408.TW"],
+            [SimpleNamespace(code="1303.TW"), SimpleNamespace(code="2408.TW")],
+        )
+        self.assertIsNone(warning)
+
+    def test_stock_completeness_warning_handles_all_targets_missing(self) -> None:
+        warning = main._build_stock_completeness_warning(
+            ["1303.TW", "2408.TW"],
+            [],
+        )
+        self.assertIn("預期分析：2 檔｜成功：0 檔｜失敗／未產出：2 檔", warning)
+        self.assertIn("1303.TW, 2408.TW", warning)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
