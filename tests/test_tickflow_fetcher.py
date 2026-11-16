@@ -132,9 +132,9 @@ def _dated_daily_rows(start, periods, symbol="600519.SH"):
             {
                 "symbol": symbol,
                 "trade_date": day.strftime("%Y-%m-%d"),
-                "open": 10,
-                "high": 11,
-                "low": 9,
+                "open": 10 + index,
+                "high": 11 + index,
+                "low": 9 + index,
                 "close": 10 + index,
                 "volume": 100 + index,
                 "amount": 1000 + index,
