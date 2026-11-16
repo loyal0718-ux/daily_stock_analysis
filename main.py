@@ -966,6 +966,7 @@ def run_full_analysis(
     # failures propagate to the caller instead of being silently swallowed.
     from src.core.market_review import run_market_review
     from src.core.pipeline import StockAnalysisPipeline
+    from src.enums import ReportType
 
     global _LAST_ANALYSIS_FAILURE_REASON
     _LAST_ANALYSIS_FAILURE_REASON = None
@@ -1330,14 +1331,19 @@ def run_full_analysis(
         ):
             # The batch is complete: now release the normal notification that
             # was intentionally deferred before completeness validation.
+            report_type_value = str(getattr(config, "report_type", "simple") or "simple").lower()
+            report_type = {
+                "brief": ReportType.BRIEF,
+                "full": ReportType.FULL,
+            }.get(report_type_value, ReportType.SIMPLE)
             if getattr(config, "single_stock_notify", False):
                 for stock_result in results:
-                    pipeline._send_single_stock_notification(stock_result)
+                    pipeline._send_single_stock_notification(
+                        stock_result,
+                        report_type=report_type,
+                    )
             else:
-                pipeline._send_notifications(
-                    results,
-                    getattr(config, "report_type", "simple"),
-                )
+                pipeline._send_notifications(results, report_type)
         if expected_stock_report and results and not getattr(
             pipeline, "_last_local_report_path", None
         ):
