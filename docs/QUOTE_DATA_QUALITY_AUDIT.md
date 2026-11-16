@@ -126,11 +126,15 @@ Regression coverage was added for invalid and duplicate dates in the generic dai
 
 ## Follow-up: OHLCV row validation gap (2026-11-16)
 
-The generic `BaseFetcher._clean_data` currently converts available numeric columns with `errors='coerce'`, then drops rows only when `close` or `volume` is null. It does not itself reject non-finite/non-positive prices, negative volume, missing OHLC columns, or impossible OHLC relationships. The turnaround detector has an independent fail-closed OHLCV validator, but other analyzers may consume the cleaned frame before reaching that detector. This is an identified follow-up, not yet changed: before tightening the shared cleaner, each provider normalizer and its fixtures must be audited to establish whether all markets guarantee complete OHLC columns and whether any source legitimately omits them. Until that audit is complete, do not claim generic ingestion fully validates OHLCV.
+Resolved by the generic daily OHLCV fail-closed validation section below. Provider compatibility is being verified through CI; the shared cleaner now requires complete OHLCV fields and rejects malformed candles before indicators are calculated.
 
 
 ## Generic daily OHLCV fail-closed validation (2026-11-16)
 
 The shared `BaseFetcher._clean_data` now requires all five daily candle fields (open/high/low/close/volume), rejects null or non-finite OHLCV values, rejects non-positive OHLC prices and negative volume, and validates that each candle's high/low range contains its open and close. It no longer silently drops rows solely because close or volume is null; malformed daily data rejects the batch before indicators are calculated. Optional `amount` and `pct_chg` metadata remain optional.
 
-Regression tests were added for missing OHLC columns, infinite volume, zero close, negative volume, and impossible OHLC ranges. These code changes are committed on the engineering branch but have not yet been confirmed by a new CI run. Do not describe this validation as production-deployed or merged.
+Regression tests cover missing OHLC columns, infinite volume, zero close, negative volume, and impossible OHLC ranges. The first CI run after this change exposed two test-fixture defects rather than a production-data regression: (1) the infinite-volume test attempted to assign infinity into an integer-typed Pandas column; (2) the TickFlow long-history fixture kept high/low fixed while increasing close beyond the high. Both fixtures were corrected in follow-up commits. A new CI run is required to validate the corrections. These changes remain on the engineering branch and are not production-deployed or merged.
+
+### Yahoo Finance Taiwan daily volume and amount handling
+
+The Taiwan daily-history route currently uses Yahoo Finance through YfinanceFetcher. The adapter passes Yahoo's Volume field through without a unit conversion. Its amount field is synthesized as volume * close; this is an estimate, not an exchange-reported traded value, and it uses the auto-adjusted close. The inspected repository code and tests do not independently establish Yahoo's Taiwan volume-unit contract. Therefore, do not label this estimated amount as official turnover, and do not use it as an authoritative cross-provider turnover comparison. The price basis remains explicitly tagged auto_adjusted; raw Fugle realtime prices must not be mixed into these daily bars without a verified adjustment conversion.
