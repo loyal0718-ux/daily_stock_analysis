@@ -151,11 +151,13 @@ class MainScheduleModeTestCase(unittest.TestCase):
         ]
         pipeline._last_local_report_path = "/tmp/complete-report.md"
 
-        with patch.object(main, "_refresh_stock_index_cache_for_analysis"), \\
-             patch("main._resolve_portfolio_stock_codes", return_value=None), \\
-             patch("main._compute_trading_day_filter", return_value=(["1303.TW", "2408.TW"], "tw", False)), \\
-             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline), \\
-             patch("main._run_auto_backtest"):
+        with (
+            patch.object(main, "_refresh_stock_index_cache_for_analysis"),
+            patch("main._resolve_portfolio_stock_codes", return_value=None),
+            patch("main._compute_trading_day_filter", return_value=(["1303.TW", "2408.TW"], "tw", False)),
+            patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline),
+            patch("main._run_auto_backtest"),
+        ):
             result = main.run_full_analysis(config, args, ["1303.TW", "2408.TW"])
 
         self.assertTrue(result)
