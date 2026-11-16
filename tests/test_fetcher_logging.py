@@ -129,7 +129,7 @@ class TestFetcherLogging(unittest.TestCase):
                     end_date="2026-03-07",
                 )
 
-        self.assertIn("空值或非有限數值", str(captured.exception))
+        self.assertIn("OHLCV 空值或非有限數值", str(captured.exception))
 
     def test_base_fetcher_rejects_non_positive_prices_and_negative_volume(self):
         fetcher = _SuccessFetcher()
