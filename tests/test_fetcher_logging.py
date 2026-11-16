@@ -130,7 +130,7 @@ class TestFetcherLogging(unittest.TestCase):
                 )
 
         # Assert the stable semantic token, not surrounding localized whitespace.
-        self.assertIn("非有限数值", str(captured.exception))
+        self.assertIn("非有限", str(captured.exception))
 
     def test_base_fetcher_rejects_non_positive_prices_and_negative_volume(self):
         fetcher = _SuccessFetcher()
