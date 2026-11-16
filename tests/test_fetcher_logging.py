@@ -118,6 +118,7 @@ class TestFetcherLogging(unittest.TestCase):
     def test_base_fetcher_rejects_non_finite_ohlcv_values(self):
         fetcher = _SuccessFetcher()
         invalid = _sample_df()
+        invalid["volume"] = invalid["volume"].astype(float)
         invalid.loc[1, "volume"] = float("inf")
 
         with patch.object(fetcher, "_fetch_raw_data", return_value=invalid):
