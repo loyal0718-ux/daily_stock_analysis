@@ -100,6 +100,71 @@ class TestFetcherLogging(unittest.TestCase):
 
         self.assertIn("无效交易日期", str(captured.exception))
 
+    def test_base_fetcher_rejects_missing_ohlcv_columns(self):
+        fetcher = _SuccessFetcher()
+        missing_open = _sample_df().drop(columns=["open"])
+
+        with patch.object(fetcher, "_fetch_raw_data", return_value=missing_open):
+            with self.assertRaises(DataFetchError) as captured:
+                fetcher.get_daily_data(
+                    "2330.TW",
+                    start_date="2026-03-06",
+                    end_date="2026-03-07",
+                )
+
+        self.assertIn("缺少必要 OHLCV 字段", str(captured.exception))
+        self.assertIn("open", str(captured.exception))
+
+    def test_base_fetcher_rejects_non_finite_ohlcv_values(self):
+        fetcher = _SuccessFetcher()
+        invalid = _sample_df()
+        invalid.loc[1, "volume"] = float("inf")
+
+        with patch.object(fetcher, "_fetch_raw_data", return_value=invalid):
+            with self.assertRaises(DataFetchError) as captured:
+                fetcher.get_daily_data(
+                    "2330.TW",
+                    start_date="2026-03-06",
+                    end_date="2026-03-07",
+                )
+
+        self.assertIn("空值或非有限數值", str(captured.exception))
+
+    def test_base_fetcher_rejects_non_positive_prices_and_negative_volume(self):
+        fetcher = _SuccessFetcher()
+        cases = [
+            ("zero_close", "close", 0, "非正 OHLC 价格"),
+            ("negative_volume", "volume", -1, "负成交量"),
+        ]
+
+        for name, column, value, expected in cases:
+            with self.subTest(case=name):
+                invalid = _sample_df()
+                invalid.loc[1, column] = value
+                with patch.object(fetcher, "_fetch_raw_data", return_value=invalid):
+                    with self.assertRaises(DataFetchError) as captured:
+                        fetcher.get_daily_data(
+                            "2330.TW",
+                            start_date="2026-03-06",
+                            end_date="2026-03-07",
+                        )
+                self.assertIn(expected, str(captured.exception))
+
+    def test_base_fetcher_rejects_impossible_ohlc_relationships(self):
+        fetcher = _SuccessFetcher()
+        invalid = _sample_df()
+        invalid.loc[1, "high"] = 9.0
+
+        with patch.object(fetcher, "_fetch_raw_data", return_value=invalid):
+            with self.assertRaises(DataFetchError) as captured:
+                fetcher.get_daily_data(
+                    "2330.TW",
+                    start_date="2026-03-06",
+                    end_date="2026-03-07",
+                )
+
+        self.assertIn("OHLC 高低價關係錯誤", str(captured.exception))
+
     def test_base_fetcher_logs_start_and_success(self):
         fetcher = _SuccessFetcher()
 
