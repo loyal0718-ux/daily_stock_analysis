@@ -560,10 +560,29 @@ class BaseFetcher(ABC):
         """
         df = df.copy()
         
-        # 确保日期列为 datetime 类型
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
-        
+        # Daily bars must carry one unambiguous trading date per row. Normalize
+        # timestamps to calendar dates before duplicate detection so two rows
+        # from the same session cannot inflate indicators or fake a retest.
+        if 'date' not in df.columns:
+            raise DataFetchError("日线数据缺少 date 日期字段")
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        if df['date'].isna().any():
+            invalid_count = int(df['date'].isna().sum())
+            raise DataFetchError(f"日线数据包含 {invalid_count} 笔无效交易日期")
+        df['date'] = df['date'].dt.normalize()
+        duplicate_mask = df['date'].duplicated(keep=False)
+        if duplicate_mask.any():
+            duplicate_dates = (
+                df.loc[duplicate_mask, 'date']
+                .dt.strftime('%Y-%m-%d')
+                .drop_duplicates()
+                .tolist()
+            )
+            preview = ", ".join(duplicate_dates[:5])
+            raise DataFetchError(
+                f"日线数据包含重复交易日期（{int(duplicate_mask.sum())} 笔）：{preview}"
+            )
+
         # 数值列类型转换
         numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
         for col in numeric_cols:
