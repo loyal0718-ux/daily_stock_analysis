@@ -79,7 +79,13 @@ def detect_turnaround_signal(bars: Iterable[Any]) -> Dict[str, Any]:
     for row in rows:
         raw_date = row.get("date") or row.get("trade_date")
         if raw_date is None:
-            continue
+            return {
+                "version": 1, "status": "invalid_data", "stage": 0,
+                "action": "block_signal",
+                "reason": "日 K 缺少交易日期，無法確認交易時序，禁止產生進場訊號",
+                "allocation": {"probe_pct": 25, "confirmation_pct": 30, "reserve_pct": 45},
+                "data_quality": "missing_trading_date",
+            }
         try:
             session_dates.append(date.fromisoformat(str(raw_date)[:10]).isoformat())
         except ValueError:
