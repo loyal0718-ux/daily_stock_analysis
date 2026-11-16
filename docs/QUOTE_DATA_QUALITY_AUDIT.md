@@ -127,3 +127,10 @@ Regression coverage was added for invalid and duplicate dates in the generic dai
 ## Follow-up: OHLCV row validation gap (2026-11-16)
 
 The generic `BaseFetcher._clean_data` currently converts available numeric columns with `errors='coerce'`, then drops rows only when `close` or `volume` is null. It does not itself reject non-finite/non-positive prices, negative volume, missing OHLC columns, or impossible OHLC relationships. The turnaround detector has an independent fail-closed OHLCV validator, but other analyzers may consume the cleaned frame before reaching that detector. This is an identified follow-up, not yet changed: before tightening the shared cleaner, each provider normalizer and its fixtures must be audited to establish whether all markets guarantee complete OHLC columns and whether any source legitimately omits them. Until that audit is complete, do not claim generic ingestion fully validates OHLCV.
+
+
+## Generic daily OHLCV fail-closed validation (2026-11-16)
+
+The shared `BaseFetcher._clean_data` now requires all five daily candle fields (open/high/low/close/volume), rejects null or non-finite OHLCV values, rejects non-positive OHLC prices and negative volume, and validates that each candle's high/low range contains its open and close. It no longer silently drops rows solely because close or volume is null; malformed daily data rejects the batch before indicators are calculated. Optional `amount` and `pct_chg` metadata remain optional.
+
+Regression tests were added for missing OHLC columns, infinite volume, zero close, negative volume, and impossible OHLC ranges. These code changes are committed on the engineering branch but have not yet been confirmed by a new CI run. Do not describe this validation as production-deployed or merged.
