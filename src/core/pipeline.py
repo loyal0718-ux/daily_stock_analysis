@@ -649,14 +649,50 @@ class StockAnalysisPipeline:
                 start_date = end_date - timedelta(days=89)  # ~60 trading days for MA60
                 historical_bars = self.db.get_data_range(code, start_date, end_date)
                 if historical_bars:
-                    turnaround_signal = detect_turnaround_signal([bar.to_dict() for bar in historical_bars])
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
-                    # Issue #234: Augment with realtime for intraday MA calculation
-                    if self.config.enable_realtime_quote and realtime_quote:
-                        df = self._augment_historical_with_realtime(
-                            df, realtime_quote, code, market=market
+                    basis_values = [
+                        str(value).strip().lower() if pd.notna(value) else ""
+                        for value in df.get(
+                            "price_adjustment_basis",
+                            pd.Series([""] * len(df)),
+                        ).tolist()
+                    ]
+                    known_basis = {"raw", "adjusted", "qfq", "hfq", "auto_adjusted", "none", "unadjusted"}
+                    unique_basis = set(basis_values)
+                    basis_is_consistent = (
+                        bool(basis_values)
+                        and all(basis_values)
+                        and len(unique_basis) == 1
+                        and next(iter(unique_basis)) in known_basis
+                    )
+                    if not basis_is_consistent:
+                        basis_label = (
+                            "mixed" if any(basis_values) and len(unique_basis) > 1
+                            else "unknown_or_incomplete"
                         )
-                    trend_result = self.trend_analyzer.analyze(df, code)
+                        warning = (
+                            f"歷史K線復權口徑{basis_label}，無法確認整段價格序列一致；"
+                            "已停用均線/MACD/RSI及止跌反彈訊號，避免產生錯誤交易判斷。"
+                        )
+                        logger.warning("[行情品質] %s(%s) %s", stock_name, code, warning)
+                        turnaround_signal = {
+                            "status": "invalid_data",
+                            "action": "block_signal",
+                            "data_quality": "inconsistent_price_adjustment_basis",
+                            "reason": warning,
+                        }
+                        trend_result = TrendAnalysisResult(code=code)
+                        trend_result.risk_factors.append(warning)
+                    else:
+                        turnaround_signal = detect_turnaround_signal(
+                            [bar.to_dict() for bar in historical_bars]
+                        )
+                        # Issue #234: Augment with realtime for intraday MA calculation
+                        if self.config.enable_realtime_quote and realtime_quote:
+                            df = self._augment_historical_with_realtime(
+                                df, realtime_quote, code, market=market
+                            )
+                        trend_result = self.trend_analyzer.analyze(df, code)
                     logger.info(f"{stock_name}({code}) 趋势分析: {trend_result.trend_status.value}, "
                               f"买入信号={trend_result.buy_signal.value}, 评分={trend_result.signal_score}")
             except Exception as e:
