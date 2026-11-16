@@ -124,6 +124,8 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertFalse(result)
         self.assertEqual(main._LAST_ANALYSIS_FAILURE_REASON, "partial_stock_analysis")
+        self.assertFalse(pipeline.run.call_args.kwargs["send_notification"])
+        pipeline._send_notifications.assert_not_called()
         pipeline.notifier.send.assert_called_once()
         warning = pipeline.notifier.send.call_args.args[0]
         self.assertIn("預期分析：2 檔｜成功：0 檔｜失敗／未產出：2 檔", warning)
@@ -155,6 +157,8 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertFalse(result)
         self.assertEqual(main._LAST_ANALYSIS_FAILURE_REASON, "partial_stock_analysis")
+        self.assertFalse(pipeline.run.call_args.kwargs["send_notification"])
+        pipeline._send_notifications.assert_not_called()
         pipeline.notifier.send.assert_called_once()
         warning = pipeline.notifier.send.call_args.args[0]
         self.assertIn("預期分析：2 檔｜成功：1 檔｜失敗／未產出：1 檔", warning)
