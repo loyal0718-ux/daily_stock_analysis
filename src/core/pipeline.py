@@ -115,6 +115,23 @@ from bot.models import BotMessage
 logger = logging.getLogger(__name__)
 
 
+def _historical_price_basis_status(df: pd.DataFrame) -> Tuple[bool, str]:
+    """Require one explicit, recognized adjustment basis across all historical bars."""
+    if df is None or df.empty or "price_adjustment_basis" not in df.columns:
+        return False, "unknown_or_incomplete"
+    values = [
+        str(value).strip().lower() if pd.notna(value) else ""
+        for value in df["price_adjustment_basis"].tolist()
+    ]
+    known = {"raw", "adjusted", "qfq", "hfq", "auto_adjusted", "none", "unadjusted"}
+    unique = set(values)
+    if not values or not all(values) or len(unique) != 1:
+        return False, "mixed" if any(values) and len(unique) > 1 else "unknown_or_incomplete"
+    if next(iter(unique)) not in known:
+        return False, "unknown_or_unsupported"
+    return True, next(iter(unique))
+
+
 # ---------------------------------------------------------------------------
 # Index capability matrix — the single authority for which analysis modules
 # are skipped for index targets (Story 1.5). Skipping must happen before any
@@ -650,26 +667,8 @@ class StockAnalysisPipeline:
                 historical_bars = self.db.get_data_range(code, start_date, end_date)
                 if historical_bars:
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
-                    basis_values = [
-                        str(value).strip().lower() if pd.notna(value) else ""
-                        for value in df.get(
-                            "price_adjustment_basis",
-                            pd.Series([""] * len(df)),
-                        ).tolist()
-                    ]
-                    known_basis = {"raw", "adjusted", "qfq", "hfq", "auto_adjusted", "none", "unadjusted"}
-                    unique_basis = set(basis_values)
-                    basis_is_consistent = (
-                        bool(basis_values)
-                        and all(basis_values)
-                        and len(unique_basis) == 1
-                        and next(iter(unique_basis)) in known_basis
-                    )
+                    basis_is_consistent, basis_label = _historical_price_basis_status(df)
                     if not basis_is_consistent:
-                        basis_label = (
-                            "mixed" if any(basis_values) and len(unique_basis) > 1
-                            else "unknown_or_incomplete"
-                        )
                         warning = (
                             f"歷史K線復權口徑{basis_label}，無法確認整段價格序列一致；"
                             "已停用均線/MACD/RSI及止跌反彈訊號，避免產生錯誤交易判斷。"
