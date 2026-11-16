@@ -88,3 +88,29 @@ def test_missing_volume_blocks_turnaround_signal():
     result = detect_turnaround_signal(bars)
     assert result["status"] == "invalid_data"
     assert result["action"] == "block_signal"
+
+def test_duplicate_session_date_blocks_turnaround_signal():
+    bars = [
+        _bar(2, 120, 122, 110, 111, 1000),
+        _bar(3, 111, 113, 105, 106, 1100),
+        _bar(4, 106, 110, 102, 103, 1000),
+        _bar(4, 103, 109, 102.5, 108, 700),
+    ]
+    result = detect_turnaround_signal(bars)
+    assert result["status"] == "invalid_data"
+    assert result["action"] == "block_signal"
+    assert result["data_quality"] == "duplicate_trading_date"
+
+
+def test_unparseable_session_date_blocks_turnaround_signal():
+    bars = [
+        _bar(2, 120, 122, 110, 111, 1000),
+        _bar(3, 111, 113, 105, 106, 1100),
+        _bar(4, 106, 110, 102, 103, 1000),
+        _bar(5, 103, 109, 102.5, 108, 700),
+    ]
+    bars[-1]["date"] = "not-a-date"
+    result = detect_turnaround_signal(bars)
+    assert result["status"] == "invalid_data"
+    assert result["action"] == "block_signal"
+    assert result["data_quality"] == "invalid_trading_date"
