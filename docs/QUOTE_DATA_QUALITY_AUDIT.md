@@ -121,4 +121,9 @@ Daily-bar ingestion now rejects rows with an invalid/missing trading date and re
 
 Calendar gaps are intentionally **not** rejected by simple consecutive-date checks: weekends and exchange holidays are legitimate. Detecting a missing trading session requires a verified exchange trading calendar and an explicit requested date range; it must not be inferred from calendar-day gaps.
 
-Regression coverage was added for invalid and duplicate dates in the generic daily-history cleaner and the turnaround detector. The CI run for commit `aecee5f27afb6efcee18a83cb4703cd2892bd173` is queued; these changes are not considered validated until that run completes successfully.
+Regression coverage was added for invalid and duplicate dates in the generic daily-history cleaner and the turnaround detector. The latest branch head `74ad09b013f385d465f78de7e970386a760b6a66` passed GitHub Actions run #43829158008: all 10 jobs completed successfully, including all three backend test shards, web gate, AI governance, Docker build, and desktop packaging checks.
+
+
+## Follow-up: OHLCV row validation gap (2026-11-16)
+
+The generic `BaseFetcher._clean_data` currently converts available numeric columns with `errors='coerce'`, then drops rows only when `close` or `volume` is null. It does not itself reject non-finite/non-positive prices, negative volume, missing OHLC columns, or impossible OHLC relationships. The turnaround detector has an independent fail-closed OHLCV validator, but other analyzers may consume the cleaned frame before reaching that detector. This is an identified follow-up, not yet changed: before tightening the shared cleaner, each provider normalizer and its fixtures must be audited to establish whether all markets guarantee complete OHLC columns and whether any source legitimately omits them. Until that audit is complete, do not claim generic ingestion fully validates OHLCV.
