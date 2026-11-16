@@ -133,6 +133,34 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertEqual(pipeline.notifier.send.call_args.kwargs["route_type"], "report")
         self.assertTrue(pipeline.notifier.send.call_args.kwargs["email_send_to_all"])
 
+    def test_run_full_analysis_releases_notification_only_after_complete_taiwan_batch(self) -> None:
+        args = self._make_args()
+        config = self._make_config(
+            trading_day_check_enabled=False,
+            market_review_enabled=False,
+            single_stock_notify=False,
+            merge_email_notification=False,
+            database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
+        )
+        pipeline = MagicMock()
+        pipeline.run.return_value = [
+            SimpleNamespace(code="1303.TW"),
+            SimpleNamespace(code="2408.TW"),
+        ]
+        pipeline._last_local_report_path = "/tmp/complete-report.md"
+
+        with patch.object(main, "_refresh_stock_index_cache_for_analysis"), \\
+             patch("main._resolve_portfolio_stock_codes", return_value=None), \\
+             patch("main._compute_trading_day_filter", return_value=(["1303.TW", "2408.TW"], "tw", False)), \\
+             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline), \\
+             patch("main._run_auto_backtest"):
+            result = main.run_full_analysis(config, args, ["1303.TW", "2408.TW"])
+
+        self.assertTrue(result)
+        self.assertTrue(pipeline.run.call_args.kwargs["send_notification"])
+        pipeline._send_notifications.assert_called_once()
+        pipeline.notifier.send.assert_not_called()
+
     def test_run_full_analysis_sends_partial_warning_and_returns_failure(self) -> None:
         args = self._make_args()
         config = self._make_config(
