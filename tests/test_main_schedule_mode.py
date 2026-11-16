@@ -191,8 +191,8 @@ class MainScheduleModeTestCase(unittest.TestCase):
         )
         pipeline = MagicMock()
         pipeline.run.return_value = [
-            SimpleNamespace(code="1303.TW"),
-            SimpleNamespace(code="2408.TW"),
+            SimpleNamespace(code="1303.TW", name="南亞", sentiment_score=70, operation_advice="觀望", trend_prediction="震盪", get_emoji=lambda: "🟡"),
+            SimpleNamespace(code="2408.TW", name="南亞科", sentiment_score=65, operation_advice="觀望", trend_prediction="震盪", get_emoji=lambda: "🟡"),
         ]
         pipeline._last_local_report_path = "/tmp/complete-report.md"
 
@@ -225,9 +225,10 @@ class MainScheduleModeTestCase(unittest.TestCase):
             database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
         )
         pipeline = MagicMock()
-        pipeline.run.return_value = [SimpleNamespace(code="1303.TW")]
+        pipeline.run.return_value = [SimpleNamespace(code="1303.TW", name="南亞", sentiment_score=70, operation_advice="觀望", trend_prediction="震盪", get_emoji=lambda: "🟡")]
         pipeline._last_local_report_path = "/tmp/partial-report.md"
         pipeline.notifier.is_available.return_value = True
+        pipeline.notifier.generate_aggregate_report.return_value = "partial aggregate"
 
         with (
             patch.object(main, "_refresh_stock_index_cache_for_analysis"),
