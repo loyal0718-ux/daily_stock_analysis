@@ -583,15 +583,59 @@ class BaseFetcher(ABC):
                 f"日线数据包含重复交易日期（{int(duplicate_mask.sum())} 笔）：{preview}"
             )
 
-        # 数值列类型转换
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
+        # A daily candle is only usable when all OHLCV fields are present.
+        # Reject the batch instead of silently dropping malformed sessions: doing
+        # so could make indicators look continuous while hiding missing candles.
+        required_ohlcv = ['open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_ohlcv if col not in df.columns]
+        if missing_columns:
+            raise DataFetchError(
+                "日线数据缺少必要 OHLCV 字段: " + ", ".join(missing_columns)
+            )
+
+        # 数值列类型转换；amount / pct_chg remain optional metadata.
+        numeric_cols = required_ohlcv + ['amount', 'pct_chg']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # 去除关键列为空的行
-        df = df.dropna(subset=['close', 'volume'])
-        
+
+        ohlcv = df[required_ohlcv].to_numpy(dtype=float)
+        invalid_numeric = ~np.isfinite(ohlcv).all(axis=1)
+        if invalid_numeric.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_numeric.sum())} 笔 OHLCV 空值或非有限数值"
+            )
+
+        open_prices = df['open'].to_numpy(dtype=float)
+        high_prices = df['high'].to_numpy(dtype=float)
+        low_prices = df['low'].to_numpy(dtype=float)
+        close_prices = df['close'].to_numpy(dtype=float)
+        volumes = df['volume'].to_numpy(dtype=float)
+
+        invalid_prices = (
+            (open_prices <= 0) | (high_prices <= 0) |
+            (low_prices <= 0) | (close_prices <= 0)
+        )
+        if invalid_prices.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_prices.sum())} 笔非正 OHLC 价格"
+            )
+
+        invalid_volume = volumes < 0
+        if invalid_volume.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_volume.sum())} 笔负成交量"
+            )
+
+        invalid_range = (
+            (high_prices < np.maximum.reduce([open_prices, low_prices, close_prices])) |
+            (low_prices > np.minimum.reduce([open_prices, high_prices, close_prices]))
+        )
+        if invalid_range.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_range.sum())} 笔 OHLC 高低價關係錯誤"
+            )
+
         # 按日期升序排序
         df = df.sort_values('date', ascending=True).reset_index(drop=True)
         
