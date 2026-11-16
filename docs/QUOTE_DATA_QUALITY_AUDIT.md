@@ -113,3 +113,12 @@ The TWSE public page was discoverable for the 2026-11-13 report. The TPEx OpenAP
 ## Institution coverage status semantics (2026-11-15)
 
 For Taiwan-listed / Taiwan-OTC symbols, the TWSE/TPEx institutional feed is an applicable source. If that fetch is skipped by configuration, times out, fails, returns no usable row, or omits a required component, the block is now marked `unavailable` with an explanatory error instead of `not_supported`. This prevents the report from confusing temporary data absence with a market that has no supported feed. `not_supported` is reserved for non-Taiwan markets where TWSE/TPEx institutional statistics do not apply. Genuine zero values remain valid data when all required fields and the official total reconciliation are present. Unavailable Taiwan institutional coverage downgrades the overall fundamental context to `partial`, and the institution block is included in `missing_fields`.
+
+
+## Trading-date integrity guard (2026-11-16)
+
+Daily-bar ingestion now rejects rows with an invalid/missing trading date and rejects duplicate calendar dates before indicator calculation. Datetime values are normalized to the session date first, so multiple timestamps from the same date cannot be counted as separate daily candles. The deterministic turnaround detector independently blocks duplicate or unparseable session dates, preventing a repeated provider row from being interpreted as a next-session breakout retest.
+
+Calendar gaps are intentionally **not** rejected by simple consecutive-date checks: weekends and exchange holidays are legitimate. Detecting a missing trading session requires a verified exchange trading calendar and an explicit requested date range; it must not be inferred from calendar-day gaps.
+
+Regression coverage was added for invalid and duplicate dates in the generic daily-history cleaner and the turnaround detector. The CI run for commit `aecee5f27afb6efcee18a83cb4703cd2892bd173` is queued; these changes are not considered validated until that run completes successfully.
