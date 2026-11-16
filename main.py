@@ -1302,9 +1302,9 @@ def run_full_analysis(
                                 getattr(config, "report_type", "simple"),
                             )
                             warning_content += (
-                                "\\n\\n---\\n\\n"
+                                "\n\n---\n\n"
                                 "⚠️ 以下僅為已成功分析股票的部分結果，請勿視為完整名單。"
-                                "\\n\\n"
+                                "\n\n"
                                 + partial_report
                             )
                         sent = pipeline.notifier.send(
