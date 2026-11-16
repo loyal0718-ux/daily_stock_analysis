@@ -175,7 +175,9 @@ class MainScheduleModeTestCase(unittest.TestCase):
             result = main.run_full_analysis(config, args, ["1303.TW", "2408.TW"])
 
         self.assertTrue(result)
-        self.assertTrue(pipeline.run.call_args.kwargs["send_notification"])
+        # Taiwan batch notifications are deliberately deferred until the
+        # completeness check has passed; only then are they released.
+        self.assertFalse(pipeline.run.call_args.kwargs["send_notification"])
         pipeline._send_notifications.assert_called_once()
         self.assertEqual(pipeline._send_notifications.call_args.args[1].value, "simple")
         pipeline.notifier.send.assert_not_called()
