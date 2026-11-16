@@ -114,3 +114,18 @@ def test_unparseable_session_date_blocks_turnaround_signal():
     assert result["status"] == "invalid_data"
     assert result["action"] == "block_signal"
     assert result["data_quality"] == "invalid_trading_date"
+
+
+
+def test_missing_session_date_blocks_turnaround_signal():
+    bars = [
+        _bar(2, 120, 122, 110, 111, 1000),
+        _bar(3, 111, 113, 105, 106, 1100),
+        _bar(4, 106, 110, 102, 103, 1000),
+        _bar(5, 103, 109, 102.5, 108, 700),
+    ]
+    del bars[-1]["date"]
+    result = detect_turnaround_signal(bars)
+    assert result["status"] == "invalid_data"
+    assert result["action"] == "block_signal"
+    assert result["data_quality"] == "missing_trading_date"
