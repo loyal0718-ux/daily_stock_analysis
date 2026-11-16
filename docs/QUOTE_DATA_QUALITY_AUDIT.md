@@ -117,7 +117,7 @@ For Taiwan-listed / Taiwan-OTC symbols, the TWSE/TPEx institutional feed is an a
 
 ## Trading-date integrity guard (2026-11-16)
 
-Daily-bar ingestion now rejects rows with an invalid/missing trading date and rejects duplicate calendar dates before indicator calculation. Datetime values are normalized to the session date first, so multiple timestamps from the same date cannot be counted as separate daily candles. The deterministic turnaround detector independently blocks duplicate or unparseable session dates, preventing a repeated provider row from being interpreted as a next-session breakout retest.
+Daily-bar ingestion now rejects rows with an invalid/missing trading date and rejects duplicate calendar dates before indicator calculation. Datetime values are normalized to the session date first, so multiple timestamps from the same date cannot be counted as separate daily candles. The deterministic turnaround detector independently blocks missing, duplicate or unparseable session dates, preventing a repeated provider row from being interpreted as a next-session breakout retest and refusing to infer candle order when dates are absent.
 
 Calendar gaps are intentionally **not** rejected by simple consecutive-date checks: weekends and exchange holidays are legitimate. Detecting a missing trading session requires a verified exchange trading calendar and an explicit requested date range; it must not be inferred from calendar-day gaps.
 
