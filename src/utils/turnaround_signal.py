@@ -73,6 +73,32 @@ def detect_turnaround_signal(bars: Iterable[Any]) -> Dict[str, Any]:
                 "data_quality": "invalid_ohlcv",
             }
 
+    # A duplicate session must not be counted as a second completed candle:
+    # otherwise a repeated provider row can manufacture a breakout/retest.
+    session_dates = []
+    for row in rows:
+        raw_date = row.get("date") or row.get("trade_date")
+        if raw_date is None:
+            continue
+        try:
+            session_dates.append(date.fromisoformat(str(raw_date)[:10]).isoformat())
+        except ValueError:
+            return {
+                "version": 1, "status": "invalid_data", "stage": 0,
+                "action": "block_signal",
+                "reason": "日 K 含有無法辨識的交易日期，禁止產生進場訊號",
+                "allocation": {"probe_pct": 25, "confirmation_pct": 30, "reserve_pct": 45},
+                "data_quality": "invalid_trading_date",
+            }
+    if len(session_dates) != len(set(session_dates)):
+        return {
+            "version": 1, "status": "invalid_data", "stage": 0,
+            "action": "block_signal",
+            "reason": "日 K 含有重複交易日期，禁止將同一交易日當成多根 K 線",
+            "allocation": {"probe_pct": 25, "confirmation_pct": 30, "reserve_pct": 45},
+            "data_quality": "duplicate_trading_date",
+        }
+
     rows.sort(key=lambda row: str(row.get("date") or row.get("trade_date") or ""))
     if len(rows) < 4:
         return {
