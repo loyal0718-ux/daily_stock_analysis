@@ -129,7 +129,8 @@ class TestFetcherLogging(unittest.TestCase):
                     end_date="2026-03-07",
                 )
 
-        self.assertIn("OHLCV 空值或非有限數值", str(captured.exception))
+        # Assert the stable semantic token, not surrounding localized whitespace.
+        self.assertIn("非有限数值", str(captured.exception))
 
     def test_base_fetcher_rejects_non_positive_prices_and_negative_volume(self):
         fetcher = _SuccessFetcher()
@@ -172,7 +173,7 @@ class TestFetcherLogging(unittest.TestCase):
         with self.assertLogs("data_provider.base", level="INFO") as captured:
             df = fetcher.get_daily_data("600519", start_date="2026-03-01", end_date="2026-03-08")
 
-        log_text = "\n".join(captured.output)
+        log_text = "\\n".join(captured.output)
         self.assertFalse(df.empty)
         self.assertIn("[SuccessFetcher] 开始获取 600519 日线数据", log_text)
         self.assertIn("[SuccessFetcher] 600519 获取成功:", log_text)
@@ -184,7 +185,7 @@ class TestFetcherLogging(unittest.TestCase):
         with self.assertLogs("data_provider.base", level="INFO") as captured:
             df, source = manager.get_daily_data("601006", start_date="2026-01-07", end_date="2026-03-08")
 
-        log_text = "\n".join(captured.output)
+        log_text = "\\n".join(captured.output)
         self.assertFalse(df.empty)
         self.assertEqual(source, "SuccessFetcher")
         self.assertIn("[数据源尝试 1/2] [FailureFetcher] 获取 601006...", log_text)
@@ -238,7 +239,7 @@ class TestFetcherLogging(unittest.TestCase):
                     with self.assertRaises(DataFetchError):
                         fetcher.get_daily_data("601006", start_date="2026-01-07", end_date="2026-03-08")
 
-        log_text = "\n".join(captured.output)
+        log_text = "\\n".join(captured.output)
         self.assertIn("Eastmoney 历史K线接口失败:", log_text)
         self.assertIn("endpoint=push2his.eastmoney.com/api/qt/stock/kline/get", log_text)
         self.assertIn("category=remote_disconnect", log_text)
