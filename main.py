@@ -1292,7 +1292,11 @@ def run_full_analysis(
                 succeeded_count,
                 ", ".join(missing_codes) or "unknown",
             )
-            if stock_completeness_warning and not args.no_notify and not merge_notification:
+            if (
+                stock_completeness_warning
+                and not args.no_notify
+                and (not merge_notification or (not results and not market_report))
+            ):
                 try:
                     if pipeline.notifier.is_available():
                         warning_content = stock_completeness_warning
