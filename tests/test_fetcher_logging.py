@@ -70,6 +70,36 @@ class _RecordingFetcher(BaseFetcher):
 
 
 class TestFetcherLogging(unittest.TestCase):
+    def test_base_fetcher_rejects_duplicate_trading_dates_before_indicators(self):
+        fetcher = _SuccessFetcher()
+        duplicated = _sample_df()
+        duplicated.loc[1, "date"] = "2026-03-06"
+
+        with patch.object(fetcher, "_fetch_raw_data", return_value=duplicated):
+            with self.assertRaises(DataFetchError) as captured:
+                fetcher.get_daily_data(
+                    "2330.TW",
+                    start_date="2026-03-06",
+                    end_date="2026-03-07",
+                )
+
+        self.assertIn("重复交易日期", str(captured.exception))
+
+    def test_base_fetcher_rejects_invalid_trading_dates(self):
+        fetcher = _SuccessFetcher()
+        invalid = _sample_df()
+        invalid.loc[1, "date"] = "not-a-date"
+
+        with patch.object(fetcher, "_fetch_raw_data", return_value=invalid):
+            with self.assertRaises(DataFetchError) as captured:
+                fetcher.get_daily_data(
+                    "2330.TW",
+                    start_date="2026-03-06",
+                    end_date="2026-03-07",
+                )
+
+        self.assertIn("无效交易日期", str(captured.exception))
+
     def test_base_fetcher_logs_start_and_success(self):
         fetcher = _SuccessFetcher()
 
