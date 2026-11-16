@@ -43,7 +43,36 @@ def detect_turnaround_signal(bars: Iterable[Any]) -> Dict[str, Any]:
     reserve based on risk/reward.
     """
     rows = [_bar_dict(item) for item in bars]
-    rows = [row for row in rows if _number(row.get("close")) and _number(row.get("low"))]
+    if not rows:
+        return {
+            "version": 1, "status": "insufficient_data", "stage": 0,
+            "action": "wait_for_more_data",
+            "reason": "沒有可用的日 K 資料",
+            "allocation": {"probe_pct": 25, "confirmation_pct": 30, "reserve_pct": 45},
+            "data_quality": "insufficient",
+        }
+
+    # Fail closed: a malformed candle must never become a buy/probe signal.
+    for index, row in enumerate(rows):
+        values = {key: _number(row.get(key)) for key in ("open", "high", "low", "close", "volume")}
+        open_price, high, low, close, volume = (
+            values["open"], values["high"], values["low"], values["close"], values["volume"]
+        )
+        if (
+            any(value is None for value in values.values())
+            or min(open_price, high, low, close) <= 0
+            or volume < 0
+            or high < max(open_price, low, close)
+            or low > min(open_price, high, close)
+        ):
+            return {
+                "version": 1, "status": "invalid_data", "stage": 0,
+                "action": "block_signal",
+                "reason": f"第 {index + 1} 根日 K 的 OHLCV 缺漏或數值矛盾，禁止產生進場訊號",
+                "allocation": {"probe_pct": 25, "confirmation_pct": 30, "reserve_pct": 45},
+                "data_quality": "invalid_ohlcv",
+            }
+
     rows.sort(key=lambda row: str(row.get("date") or row.get("trade_date") or ""))
     if len(rows) < 4:
         return {
