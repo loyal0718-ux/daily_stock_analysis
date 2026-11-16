@@ -177,6 +177,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertTrue(result)
         self.assertTrue(pipeline.run.call_args.kwargs["send_notification"])
         pipeline._send_notifications.assert_called_once()
+        self.assertEqual(pipeline._send_notifications.call_args.args[1].value, "simple")
         pipeline.notifier.send.assert_not_called()
 
     def test_run_full_analysis_sends_partial_warning_and_returns_failure(self) -> None:
