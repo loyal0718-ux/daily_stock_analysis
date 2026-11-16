@@ -102,6 +102,65 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertIn("預期分析：2 檔｜成功：0 檔｜失敗／未產出：2 檔", warning)
         self.assertIn("1303.TW, 2408.TW", warning)
 
+    def test_run_full_analysis_sends_warning_and_fails_when_all_taiwan_targets_fail(self) -> None:
+        args = self._make_args()
+        config = self._make_config(
+            trading_day_check_enabled=False,
+            market_review_enabled=False,
+            single_stock_notify=False,
+            merge_email_notification=False,
+            database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
+        )
+        pipeline = MagicMock()
+        pipeline.run.return_value = []
+        pipeline.notifier.is_available.return_value = True
+
+        with patch.object(main, "_refresh_stock_index_cache_for_analysis"), \
+             patch("main._resolve_portfolio_stock_codes", return_value=None), \
+             patch("main._compute_trading_day_filter", return_value=(["1303.TW", "2408.TW"], "tw", False)), \
+             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline), \
+             patch("main._run_auto_backtest"):
+            result = main.run_full_analysis(config, args, ["1303.TW", "2408.TW"])
+
+        self.assertFalse(result)
+        self.assertEqual(main._LAST_ANALYSIS_FAILURE_REASON, "partial_stock_analysis")
+        pipeline.notifier.send.assert_called_once()
+        warning = pipeline.notifier.send.call_args.args[0]
+        self.assertIn("預期分析：2 檔｜成功：0 檔｜失敗／未產出：2 檔", warning)
+        self.assertIn("未完成股票：1303.TW, 2408.TW", warning)
+        self.assertEqual(pipeline.notifier.send.call_args.kwargs["route_type"], "report")
+        self.assertTrue(pipeline.notifier.send.call_args.kwargs["email_send_to_all"])
+
+    def test_run_full_analysis_sends_partial_warning_and_returns_failure(self) -> None:
+        args = self._make_args()
+        config = self._make_config(
+            trading_day_check_enabled=False,
+            market_review_enabled=False,
+            single_stock_notify=False,
+            merge_email_notification=False,
+            database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
+        )
+        pipeline = MagicMock()
+        pipeline.run.return_value = [SimpleNamespace(code="1303.TW")]
+        pipeline._last_local_report_path = "/tmp/partial-report.md"
+        pipeline.notifier.is_available.return_value = True
+        pipeline.notifier.generate_aggregate_report.return_value = "partial aggregate"
+
+        with patch.object(main, "_refresh_stock_index_cache_for_analysis"), \
+             patch("main._resolve_portfolio_stock_codes", return_value=None), \
+             patch("main._compute_trading_day_filter", return_value=(["1303.TW", "2408.TW"], "tw", False)), \
+             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline), \
+             patch("main._run_auto_backtest"):
+            result = main.run_full_analysis(config, args, ["1303.TW", "2408.TW"])
+
+        self.assertFalse(result)
+        self.assertEqual(main._LAST_ANALYSIS_FAILURE_REASON, "partial_stock_analysis")
+        pipeline.notifier.send.assert_called_once()
+        warning = pipeline.notifier.send.call_args.args[0]
+        self.assertIn("預期分析：2 檔｜成功：1 檔｜失敗／未產出：1 檔", warning)
+        self.assertIn("未完成股票：2408.TW", warning)
+        self.assertEqual(pipeline.notifier.send.call_args.kwargs["route_type"], "report")
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
