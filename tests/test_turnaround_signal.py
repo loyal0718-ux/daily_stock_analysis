@@ -62,3 +62,29 @@ def test_insufficient_history_is_not_a_signal():
     result = detect_turnaround_signal([_bar(5, 10, 11, 9, 10, 100)])
     assert result["status"] == "insufficient_data"
     assert result["action"] == "wait_for_more_data"
+
+
+def test_malformed_ohlcv_blocks_all_turnaround_entries():
+    bars = [
+        _bar(2, 120, 122, 110, 111, 1000),
+        _bar(3, 111, 113, 105, 106, 1100),
+        _bar(4, 106, 110, 102, 103, 1000),
+        _bar(5, 103, 101, 102.5, 108, 700),  # high is below open/close
+    ]
+    result = detect_turnaround_signal(bars)
+    assert result["status"] == "invalid_data"
+    assert result["action"] == "block_signal"
+    assert result["data_quality"] == "invalid_ohlcv"
+
+
+def test_missing_volume_blocks_turnaround_signal():
+    bars = [
+        _bar(2, 120, 122, 110, 111, 1000),
+        _bar(3, 111, 113, 105, 106, 1100),
+        _bar(4, 106, 110, 102, 103, 1000),
+        _bar(5, 103, 109, 102.5, 108, 700),
+    ]
+    del bars[-1]["volume"]
+    result = detect_turnaround_signal(bars)
+    assert result["status"] == "invalid_data"
+    assert result["action"] == "block_signal"
