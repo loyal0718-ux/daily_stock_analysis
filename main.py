@@ -1048,6 +1048,20 @@ def run_full_analysis(
             and not config.single_stock_notify
         )
 
+        # Strict Taiwan-stock batches defer notifications until completeness is known.
+        # This prevents pipeline.run() from broadcasting an apparently complete
+        # aggregate before the main layer can label missing symbols.
+        strict_stock_completeness_required = (
+            not getattr(args, "dry_run", False)
+            and bool(stock_codes)
+            and not getattr(args, "portfolio", None)
+            and not skip_futu_stock_analysis
+            and all(
+                str(code).upper().endswith((".TW", ".TWO"))
+                for code in (stock_codes or [])
+            )
+        )
+
         # 创建调度器
         save_context_snapshot = None
         if getattr(args, 'no_context_snapshot', False):
@@ -1135,7 +1149,10 @@ def run_full_analysis(
             results = pipeline.run(
                 stock_codes=stock_codes,
                 dry_run=args.dry_run,
-                send_notification=not args.no_notify,
+                send_notification=(
+                    not args.no_notify
+                    and not (strict_stock_completeness_required and not merge_notification)
+                ),
                 merge_notification=merge_notification,
                 current_time=analysis_reference_time,
                 analysis_targets=analysis_targets,
@@ -1260,14 +1277,6 @@ def run_full_analysis(
             and not skip_futu_stock_analysis
         )
         deferred_failure_result = None
-        strict_stock_completeness_required = (
-            expected_stock_report
-            and not getattr(args, "portfolio", None)
-            and all(
-                str(code).upper().endswith((".TW", ".TWO"))
-                for code in (stock_codes or [])
-            )
-        )
         stock_completeness_warning = None
         if strict_stock_completeness_required and not _all_stock_targets_succeeded(stock_codes, results):
             missing_codes, succeeded_count = _stock_target_completeness(stock_codes, results)
@@ -1283,20 +1292,48 @@ def run_full_analysis(
                 succeeded_count,
                 ", ".join(missing_codes) or "unknown",
             )
-            if stock_completeness_warning and not args.no_notify and (not merge_notification or (not results and not market_report)):
+            if stock_completeness_warning and not args.no_notify and not merge_notification:
                 try:
                     if pipeline.notifier.is_available():
+                        warning_content = stock_completeness_warning
+                        if results:
+                            partial_report = pipeline.notifier.generate_aggregate_report(
+                                results,
+                                getattr(config, "report_type", "simple"),
+                            )
+                            warning_content += (
+                                "\\n\\n---\\n\\n"
+                                "⚠️ 以下僅為已成功分析股票的部分結果，請勿視為完整名單。"
+                                "\\n\\n"
+                                + partial_report
+                            )
                         sent = pipeline.notifier.send(
-                            stock_completeness_warning,
+                            warning_content,
                             email_send_to_all=True,
                             route_type="report",
                         )
                         logger.info(
-                            "個股分析不完整警示推送%s",
+                            "個股分析不完整警示／部分報告推送%s",
                             "成功" if sent else "失敗",
                         )
                 except Exception as notify_error:
                     logger.warning("個股分析不完整警示推送異常: %s", notify_error)
+        elif (
+            strict_stock_completeness_required
+            and not args.no_notify
+            and not merge_notification
+            and results
+        ):
+            # The batch is complete: now release the normal notification that
+            # was intentionally deferred before completeness validation.
+            if getattr(config, "single_stock_notify", False):
+                for stock_result in results:
+                    pipeline._send_single_stock_notification(stock_result)
+            else:
+                pipeline._send_notifications(
+                    results,
+                    getattr(config, "report_type", "simple"),
+                )
         if expected_stock_report and results and not getattr(
             pipeline, "_last_local_report_path", None
         ):
@@ -1311,7 +1348,12 @@ def run_full_analysis(
             not getattr(args, "dry_run", False)
             and should_run_market_review
         )
-        if (expected_stock_report or expected_market_report) and not results and not market_report:
+        if (
+            (expected_stock_report or expected_market_report)
+            and not results
+            and not market_report
+            and not stock_completeness_warning
+        ):
             _LAST_ANALYSIS_FAILURE_REASON = "no_report"
             logger.error(
                 "本轮分析未生成任何报告：预期的个股分析或大盘复盘均未产出结果。"
