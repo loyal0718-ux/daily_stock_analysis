@@ -33,6 +33,9 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         pipeline.db = MagicMock()
         pipeline.fetcher_manager.get_stock_name.return_value = "贵州茅台"
         pipeline.db.has_today_data.return_value = True
+        pipeline.db.get_data_range.return_value = [
+            SimpleNamespace(to_dict=lambda: {"price_adjustment_basis": "auto_adjusted"})
+        ]
         current_time = datetime(2026, 3, 28, 1, 0, tzinfo=timezone.utc)
 
         success, error = StockAnalysisPipeline.fetch_and_save_stock_data(
@@ -47,6 +50,9 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
             "600519", current_time=current_time, analysis_target=None
         )
         pipeline.db.has_today_data.assert_called_once_with("600519", date(2026, 3, 27))
+        pipeline.db.get_data_range.assert_called_once_with(
+            "600519", date(2025, 12, 28), date(2026, 3, 27)
+        )
         pipeline.fetcher_manager.get_daily_data.assert_not_called()
 
     @patch.object(
@@ -74,6 +80,40 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         self.assertIsNone(error)
         pipeline.fetcher_manager.get_daily_data.assert_called_once_with("2330.TW", days=120)
         pipeline.db.save_daily_data.assert_called_once_with(daily_frame, "2330.TW", "Yahoo")
+
+    @patch.object(
+        StockAnalysisPipeline,
+        "_resolve_resume_target_date",
+        return_value=date(2026, 3, 27),
+    )
+    def test_fetch_and_save_refreshes_when_existing_history_has_unknown_basis(self, _mock_target):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.fetcher_manager = MagicMock()
+        pipeline.db = MagicMock()
+        pipeline.fetcher_manager.get_stock_name.return_value = "台積電"
+        pipeline.db.has_today_data.return_value = True
+        pipeline.db.get_data_range.return_value = [
+            SimpleNamespace(to_dict=lambda: {"price_adjustment_basis": None})
+        ]
+        daily_frame = MagicMock()
+        daily_frame.empty = False
+        pipeline.fetcher_manager.get_daily_data.return_value = (daily_frame, "Yahoo")
+
+        success, error = StockAnalysisPipeline.fetch_and_save_stock_data(
+            pipeline, "2330.TW"
+        )
+
+        self.assertTrue(success)
+        self.assertIsNone(error)
+        pipeline.db.get_data_range.assert_called_once_with(
+            "2330.TW", date(2025, 12, 28), date(2026, 3, 27)
+        )
+        pipeline.fetcher_manager.get_daily_data.assert_called_once_with(
+            "2330.TW", days=120
+        )
+        pipeline.db.save_daily_data.assert_called_once_with(
+            daily_frame, "2330.TW", "Yahoo"
+        )
 
     def test_resolve_resume_target_date_normalizes_supported_a_share_formats(self):
         with patch("src.core.pipeline.get_market_for_stock", return_value="cn") as mock_market, patch(

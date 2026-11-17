@@ -425,12 +425,30 @@ class StockAnalysisPipeline:
                 code, current_time=current_time, analysis_target=analysis_target
             )
 
-            # 断点续传检查：如果最新可复用交易日的数据已存在，则跳过
+            # Reuse a completed daily row only when the entire trend lookback
+            # already has one explicit, consistent adjustment basis. Legacy rows
+            # written before basis metadata was introduced must be refreshed once.
             if not force_refresh and self.db.has_today_data(code, target_date):
-                logger.info(
-                    f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）"
+                basis_start_date = target_date - timedelta(days=89)
+                existing_bars = self.db.get_data_range(
+                    code, basis_start_date, target_date
                 )
-                return True, None
+                existing_frame = pd.DataFrame(
+                    [bar.to_dict() for bar in existing_bars]
+                ) if existing_bars else pd.DataFrame()
+                basis_is_consistent, basis_label = _historical_price_basis_status(
+                    existing_frame
+                )
+                if basis_is_consistent:
+                    logger.info(
+                        f"{stock_name}({code}) {target_date} 数据已存在且价格基准一致"
+                        f"（{basis_label}），跳过获取（断点续传）"
+                    )
+                    return True, None
+                logger.info(
+                    f"{stock_name}({code}) 历史价格基准={basis_label}，"
+                    "刷新完整历史窗口以补齐/统一基准元数据"
+                )
 
             # 从数据源获取数据
             logger.info(f"{stock_name}({code}) 开始从数据源获取数据...")
