@@ -49,6 +49,30 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         pipeline.db.has_today_data.assert_called_once_with("600519", date(2026, 3, 27))
         pipeline.fetcher_manager.get_daily_data.assert_not_called()
 
+    @patch.object(
+        StockAnalysisPipeline,
+        "_resolve_resume_target_date",
+        return_value=date(2026, 3, 27),
+    )
+    def test_fetch_and_save_refreshes_full_price_basis_lookback(self, _mock_target):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.fetcher_manager = MagicMock()
+        pipeline.db = MagicMock()
+        pipeline.fetcher_manager.get_stock_name.return_value = "台積電"
+        pipeline.db.has_today_data.return_value = False
+        pipeline.fetcher_manager.get_daily_data.return_value = ("daily-frame", "Yahoo")
+
+        success, error = StockAnalysisPipeline.fetch_and_save_stock_data(
+            pipeline,
+            "2330.TW",
+            force_refresh=True,
+        )
+
+        self.assertTrue(success)
+        self.assertIsNone(error)
+        pipeline.fetcher_manager.get_daily_data.assert_called_once_with("2330.TW", days=120)
+        pipeline.db.save_daily_data.assert_called_once_with("daily-frame", "2330.TW", "Yahoo")
+
     def test_resolve_resume_target_date_normalizes_supported_a_share_formats(self):
         with patch("src.core.pipeline.get_market_for_stock", return_value="cn") as mock_market, patch(
             "src.core.pipeline.get_effective_trading_date",
