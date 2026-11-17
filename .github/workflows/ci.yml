@@ -219,7 +219,8 @@ jobs:
     name: desktop-futu-package-macos
     runs-on: macos-15
     needs: [changes, ai-governance]
-    if: needs.changes.outputs.futu_packaging == 'true'
+    # macOS packaging is not required for this project; keep the job defined for future re-enablement.
+    if: false
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v5
