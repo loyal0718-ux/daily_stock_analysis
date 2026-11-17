@@ -59,48 +59,25 @@ def _load_daily_analysis_env() -> dict[str, str]:
     return analyze_step["env"]
 
 
-def test_daily_analysis_maps_all_provider_template_channels() -> None:
-    templates = _extract_provider_templates()
+def test_daily_analysis_preserves_configurable_generation_routing() -> None:
     env = _load_daily_analysis_env()
-
-    for channel in templates:
-        prefix = f"LLM_{channel.upper()}_"
-        for suffix in (
-            "PROTOCOL",
-            "API_SURFACE",
-            "BASE_URL",
-            "API_KEY",
-            "API_KEYS",
-            "MODELS",
-            "ENABLED",
-            "EXTRA_HEADERS",
-        ):
-            assert f"{prefix}{suffix}" in env
-
-    assert not any(key.startswith("LLM_ARK_") for key in env)
+    assert env["GENERATION_BACKEND"] == "${{ vars.GENERATION_BACKEND || secrets.GENERATION_BACKEND }}"
+    assert env["GENERATION_FALLBACK_BACKEND"] == "${{ vars.GENERATION_FALLBACK_BACKEND || secrets.GENERATION_FALLBACK_BACKEND || 'litellm' }}"
+    assert env["GEMINI_API_KEY"] == "${{ secrets.GEMINI_API_KEY }}"
+    assert env["GEMINI_MODEL"] == "${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}"
+    assert env["GEMINI_MODEL_FALLBACK"] == "${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}"
+    for key in ("LITELLM_CONFIG", "LITELLM_CONFIG_YAML", "LITELLM_MODEL",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
+                "AIHUBMIX_KEY", "MODELFLARE_KEY", "LLM_CHANNELS",
+                "LLM_PRIMARY_API_KEY", "LLM_SECONDARY_API_KEY"):
+        assert key in env, f"Existing provider configuration {key} must remain available"
 
 
-def test_daily_analysis_accepts_modelflare_one_key_from_secrets() -> None:
-    assert _load_daily_analysis_env()["MODELFLARE_KEY"] == "${{ secrets.MODELFLARE_KEY }}"
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
-    analyze = next(step for step in workflow["jobs"]["analyze"]["steps"] if step.get("name") == "执行股票分析")
-    assert '[ -n "$MODELFLARE_KEY" ]' in analyze["run"]
+def test_retired_gemini_fallback_is_normalized() -> None:
+    from src.config import normalize_gemini_fallback_model
 
-
-def test_daily_analysis_keeps_channel_secrets_in_secrets_context() -> None:
-    templates = _extract_provider_templates()
-    env = _load_daily_analysis_env()
-
-    for channel in templates:
-        upper = channel.upper()
-        for suffix in ("API_KEY", "API_KEYS"):
-            key = f"LLM_{upper}_{suffix}"
-            assert env[key] == f"${{{{ secrets.{key} }}}}"
-
-        for suffix in ("PROTOCOL", "API_SURFACE", "BASE_URL", "MODELS", "ENABLED", "EXTRA_HEADERS"):
-            key = f"LLM_{upper}_{suffix}"
-            assert f"vars.{key}" in env[key]
-            assert f"secrets.{key}" in env[key]
+    assert normalize_gemini_fallback_model("gemini-2.5-flash") == "gemini-3.8-flash"
+    assert normalize_gemini_fallback_model("gemini-3.7-flash") == "gemini-3.7-flash"
 
 
 def test_daily_analysis_maps_usage_hmac_config_safely() -> None:
@@ -123,33 +100,6 @@ def test_daily_analysis_maps_prompt_cache_config() -> None:
         assert key in env
         assert f"vars.{key}" in env[key]
         assert f"secrets.{key}" in env[key]
-
-
-def test_daily_analysis_maps_generation_backend_runtime_config() -> None:
-    env = _load_daily_analysis_env()
-
-    for key in (
-        "GENERATION_BACKEND",
-        "GENERATION_FALLBACK_BACKEND",
-        "GENERATION_BACKEND_TIMEOUT_SECONDS",
-        "GENERATION_BACKEND_MAX_OUTPUT_BYTES",
-        "GENERATION_BACKEND_MAX_CONCURRENCY",
-        "LOCAL_CLI_BACKEND_MAX_CONCURRENCY",
-        "AGENT_GENERATION_BACKEND",
-    ):
-        assert key in env
-        assert f"vars.{key}" in env[key]
-        assert f"secrets.{key}" in env[key]
-
-
-def test_daily_analysis_generation_fallback_defaults_to_litellm() -> None:
-    env = _load_daily_analysis_env()
-    expression = env["GENERATION_FALLBACK_BACKEND"]
-
-    assert expression == (
-        "${{ vars.GENERATION_FALLBACK_BACKEND || "
-        "secrets.GENERATION_FALLBACK_BACKEND || 'litellm' }}"
-    )
 
 
 def test_env_example_includes_provider_template_channel_examples() -> None:

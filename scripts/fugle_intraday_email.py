@@ -4,6 +4,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+import re
 import sys
 from pathlib import Path
 import json
@@ -20,7 +21,6 @@ from data_provider.base import DataFetcherManager
 from src.notification_sender.email_sender import EmailSender
 
 TZ = ZoneInfo("Asia/Taipei")
-EXPECTED = ["1303.TW","2408.TW","2603.TW","2409.TW","2344.TW","2454.TW","3231.TW","2330.TW","2881.TW"]
 
 def as_local(value):
     if not value:
@@ -43,8 +43,11 @@ def main():
     now = datetime.now(TZ)
     config = get_config()
     codes = list(getattr(config, "stock_list", []) or [])
-    if codes != EXPECTED:
-        raise RuntimeError(f"Watchlist mismatch: expected {EXPECTED}, got {codes}")
+    if not codes:
+        raise RuntimeError("Taiwan watchlist is empty; refusing to fetch quotes or send notifications")
+    invalid_codes = [code for code in codes if not re.fullmatch(r"\d{4,6}\.TW", str(code).strip().upper())]
+    if invalid_codes:
+        raise RuntimeError(f"Unsupported non-Taiwan symbols in watchlist: {invalid_codes}")
 
     manager = DataFetcherManager()
     rows = []

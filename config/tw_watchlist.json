@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "market": "tw",
+  "description": "Central watchlist for Taiwan daily analysis and optional manual Fugle snapshots.",
+  "instruments": [
+    {"symbol": "1303.TW", "name": "南亞", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2408.TW", "name": "南亞科", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2603.TW", "name": "長榮", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2409.TW", "name": "友達", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2344.TW", "name": "華邦電", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2454.TW", "name": "聯發科", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "3231.TW", "name": "緯創", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2330.TW", "name": "台積電", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}},
+    {"symbol": "2881.TW", "name": "富邦金", "market": "tw", "enabled": true, "data_source": "auto", "monitoring": {"alert_price": null, "stop_loss": null, "take_profit": null}}
+  ]
+}

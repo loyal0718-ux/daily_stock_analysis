@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
@@ -14,11 +15,11 @@ SNIPER_KEYS = ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")
 def parse_sniper_value(value: Any) -> Optional[float]:
     """Parse a sniper point value from report text into a positive price."""
 
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         parsed = float(value)
-        return parsed if parsed > 0 else None
+        return parsed if math.isfinite(parsed) and parsed > 0 else None
 
     text = str(value).replace(",", "").replace("，", "").strip()
     if not text or text in {"-", "—", "N/A"}:
@@ -40,11 +41,14 @@ def parse_sniper_value(value: Any) -> Optional[float]:
             start_idx = match.start()
             if start_idx >= 2 and segment[start_idx - 2:start_idx].upper() == "MA":
                 continue
-            valid_numbers.append(match.group())
+            token = match.group()
+            if token.startswith("-") and segment[:start_idx].rstrip().endswith(tuple("0123456789")):
+                token = token[1:]  # Hyphen between two prices denotes a range, not a negative price.
+            valid_numbers.append(token)
         if valid_numbers:
             try:
-                parsed = abs(float(valid_numbers[-1]))
-                return parsed if parsed > 0 else None
+                parsed = float(valid_numbers[-1])
+                return parsed if math.isfinite(parsed) and parsed > 0 else None
             except ValueError:
                 pass
 
@@ -56,15 +60,18 @@ def parse_sniper_value(value: Any) -> Optional[float]:
     search_text = text[:paren_pos].strip() or text
 
     valid_numbers = []
-    for match in re.finditer(r"\d+(?:\.\d+)?", search_text):
+    for match in re.finditer(r"-?\d+(?:\.\d+)?", search_text):
         start_idx = match.start()
         if start_idx >= 2 and search_text[start_idx - 2:start_idx].upper() == "MA":
             continue
-        valid_numbers.append(match.group())
+        token = match.group()
+        if token.startswith("-") and search_text[:start_idx].rstrip().endswith(tuple("0123456789")):
+            token = token[1:]
+        valid_numbers.append(token)
     if valid_numbers:
         try:
             parsed = float(valid_numbers[-1])
-            return parsed if parsed > 0 else None
+            return parsed if math.isfinite(parsed) and parsed > 0 else None
         except ValueError:
             pass
     return None

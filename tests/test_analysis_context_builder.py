@@ -147,6 +147,25 @@ def test_quote_block_maps_available_missing_fallback_and_explicit_stale() -> Non
     assert "quote_stale" in stale.warnings
 
 
+def test_quote_block_distinguishes_disabled_realtime_from_missing_quote() -> None:
+    disabled = AnalysisContextBuilder.build(
+        _artifacts(realtime_quote=None, metadata={
+            "query_id": "q-1", "trigger_source": "schedule", "realtime_quote_enabled": False,
+        })
+    ).blocks["quote"]
+    assert disabled.status == ContextFieldStatus.NOT_SUPPORTED
+    assert disabled.items["quote"].missing_reason == "realtime_quote_disabled"
+    assert disabled.metadata["enabled"] is False
+
+    failed = AnalysisContextBuilder.build(
+        _artifacts(realtime_quote=None, metadata={
+            "query_id": "q-2", "trigger_source": "schedule", "realtime_quote_enabled": True,
+        })
+    ).blocks["quote"]
+    assert failed.status == ContextFieldStatus.MISSING
+    assert failed.items["quote"].missing_reason == "realtime_quote_missing"
+
+
 def test_quote_block_maps_realtime_metadata_and_status_priority() -> None:
     fallback = AnalysisContextBuilder.build(
         _artifacts(

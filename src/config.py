@@ -232,6 +232,18 @@ AGENT_CONTEXT_COMPRESSION_PROFILES: Dict[str, AgentContextCompressionPreset] = {
 }
 
 
+def normalize_gemini_fallback_model(value: Optional[str]) -> str:
+    """Replace the retired Gemini 2.5 Flash fallback with the current stable route."""
+    candidate = (value or "").strip() or "gemini-3.8-flash"
+    if candidate == "gemini-2.5-flash":
+        logger.warning(
+            "GEMINI_MODEL_FALLBACK=gemini-2.5-flash is no longer usable for this deployment; "
+            "using gemini-3.8-flash instead."
+        )
+        return "gemini-3.8-flash"
+    return candidate
+
+
 def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
     """Parse common truthy/falsey environment-style values."""
     if value is None:
@@ -1057,7 +1069,7 @@ class Config:
     # Legacy single-key fields (kept for backward compatibility; gemini_api_keys[0] when set)
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.1-pro-preview"  # 主模型
-    gemini_model_fallback: str = "gemini-3-flash-preview"  # 备选模型
+    gemini_model_fallback: str = "gemini-3.8-flash"  # 备选模型
     gemini_temperature: float = 0.7  # 温度参数（0.0-2.0，控制输出随机性，默认0.7）
 
     # Gemini API 请求配置（防止 429 限流）
@@ -1335,10 +1347,10 @@ class Config:
     trading_day_check_enabled: bool = True
 
     # === 实时行情增强数据配置 ===
-    # 实时行情开关（关闭后使用历史收盘价进行分析）
-    enable_realtime_quote: bool = True
-    # 盘中实时技术面：启用时用实时价计算 MA/多头排列（Issue #234）；关闭则用昨日收盘
-    enable_realtime_technical_indicators: bool = True
+    # 实时行情为可选旧功能；台湾盘后仪表板默认仅使用已完成的历史日线
+    enable_realtime_quote: bool = False
+    # 盘中实时技术面默认关闭；技术指标以已完成日线计算
+    enable_realtime_technical_indicators: bool = False
     # 筹码分布开关（该接口不稳定，云端部署建议关闭）
     enable_chip_distribution: bool = True
     # 东财接口补丁开关
@@ -1731,7 +1743,14 @@ class Config:
 
             if not litellm_fallback_models and not litellm_fallback_models_explicit:
                 # Backward compat: use gemini_model_fallback when primary is gemini
-                _gemini_fallback = os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-3-flash-preview').strip()
+                _gemini_fallback_raw = os.getenv('GEMINI_MODEL_FALLBACK')
+                # An explicitly empty value is a safety switch: do not retry another
+                # model/provider after quota exhaustion. Unset retains legacy defaults.
+                _gemini_fallback = (
+                    normalize_gemini_fallback_model(_gemini_fallback_raw)
+                    if _gemini_fallback_raw is None or _gemini_fallback_raw.strip()
+                    else ""
+                )
                 if litellm_model.startswith('gemini/') and _gemini_fallback:
                     _fb = f'gemini/{_gemini_fallback}' if '/' not in _gemini_fallback else _gemini_fallback
                     litellm_fallback_models = [_fb]
@@ -1990,7 +2009,7 @@ class Config:
             deepseek_api_keys=deepseek_api_keys,
             gemini_api_key=os.getenv('GEMINI_API_KEY'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3.1-pro-preview'),
-            gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-3-flash-preview'),
+            gemini_model_fallback=normalize_gemini_fallback_model(os.getenv('GEMINI_MODEL_FALLBACK')),
             gemini_temperature=parse_env_float(os.getenv('GEMINI_TEMPERATURE'), 0.7, field_name='GEMINI_TEMPERATURE'),
             gemini_request_delay=parse_env_float(os.getenv('GEMINI_REQUEST_DELAY'), 2.0, field_name='GEMINI_REQUEST_DELAY', minimum=0.0),
             gemini_max_retries=parse_env_int(os.getenv('GEMINI_MAX_RETRIES'), 5, field_name='GEMINI_MAX_RETRIES', minimum=0),
@@ -2388,9 +2407,9 @@ class Config:
             # Discord 机器人扩展配置
             discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
             # 实时行情增强数据配置
-            enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
+            enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'false').lower() == 'true',
             enable_realtime_technical_indicators=os.getenv(
-                'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'true'
+                'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'false'
             ).lower() == 'true',
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
             # 东财接口补丁开关

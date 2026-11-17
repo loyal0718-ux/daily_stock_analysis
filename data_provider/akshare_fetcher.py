@@ -415,6 +415,7 @@ class AkshareFetcher(BaseFetcher):
     """
     
     name = "AkshareFetcher"
+    price_adjustment_basis = "qfq"
     priority = int(os.getenv("AKSHARE_PRIORITY", "1"))
     
     def __init__(self, sleep_min: float = 2.0, sleep_max: float = 5.0):

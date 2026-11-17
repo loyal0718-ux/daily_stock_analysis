@@ -30,6 +30,7 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import is_bse_code, normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
+from src.core.quote_integrity import validate_realtime_quote
 from src.analyzer import (
     GeminiAnalyzer,
     AnalysisResult,
@@ -80,6 +81,7 @@ from src.services.analysis_context_builder import (
     PipelineAnalysisArtifacts,
 )
 from src.services.market_structure_service import MarketStructureService
+from src.utils.turnaround_signal import detect_turnaround_signal
 from src.services.run_diagnostics import (
     activate_run_diagnostic_context,
     current_diagnostic_snapshot,
@@ -111,6 +113,23 @@ from bot.models import BotMessage
 
 
 logger = logging.getLogger(__name__)
+
+
+def _historical_price_basis_status(df: pd.DataFrame) -> Tuple[bool, str]:
+    """Require one explicit, recognized adjustment basis across all historical bars."""
+    if df is None or df.empty or "price_adjustment_basis" not in df.columns:
+        return False, "unknown_or_incomplete"
+    values = [
+        str(value).strip().lower() if pd.notna(value) else ""
+        for value in df["price_adjustment_basis"].tolist()
+    ]
+    known = {"raw", "adjusted", "qfq", "hfq", "auto_adjusted", "none", "unadjusted"}
+    unique = set(values)
+    if not values or not all(values) or len(unique) != 1:
+        return False, "mixed" if any(values) and len(unique) > 1 else "unknown_or_incomplete"
+    if next(iter(unique)) not in known:
+        return False, "unknown_or_unsupported"
+    return True, next(iter(unique))
 
 
 # ---------------------------------------------------------------------------
@@ -406,16 +425,35 @@ class StockAnalysisPipeline:
                 code, current_time=current_time, analysis_target=analysis_target
             )
 
-            # 断点续传检查：如果最新可复用交易日的数据已存在，则跳过
+            # Reuse a completed daily row only when the entire trend lookback
+            # already has one explicit, consistent adjustment basis. Legacy rows
+            # written before basis metadata was introduced must be refreshed once.
             if not force_refresh and self.db.has_today_data(code, target_date):
-                logger.info(
-                    f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）"
+                basis_start_date = target_date - timedelta(days=89)
+                existing_bars = self.db.get_data_range(
+                    code, basis_start_date, target_date
                 )
-                return True, None
+                existing_frame = pd.DataFrame(
+                    [bar.to_dict() for bar in existing_bars]
+                ) if existing_bars else pd.DataFrame()
+                basis_is_consistent, basis_label = _historical_price_basis_status(
+                    existing_frame
+                )
+                if basis_is_consistent:
+                    logger.info(
+                        f"{stock_name}({code}) {target_date} 数据已存在且价格基准一致"
+                        f"（{basis_label}），跳过获取（断点续传）"
+                    )
+                    return True, None
+                logger.info(
+                    f"{stock_name}({code}) 历史价格基准={basis_label}，"
+                    "刷新完整历史窗口以补齐/统一基准元数据"
+                )
 
             # 从数据源获取数据
             logger.info(f"{stock_name}({code}) 开始从数据源获取数据...")
-            df, source_name = self.fetcher_manager.get_daily_data(code, days=30)
+            # Refresh enough calendar days to replace legacy NULL price-basis rows across the ~60-session trend window.
+            df, source_name = self.fetcher_manager.get_daily_data(code, days=120)
 
             if df is None or df.empty:
                 return False, "获取数据为空"
@@ -638,6 +676,7 @@ class StockAnalysisPipeline:
 
             # Step 3: 趋势分析（基于交易理念）— 在 Agent 分支之前执行，供两条路径共用
             trend_result: Optional[TrendAnalysisResult] = None
+            turnaround_signal: Optional[Dict[str, Any]] = None
             try:
                 from src.services.history_loader import get_frozen_target_date
                 _mkt = get_market_for_stock(normalize_stock_code(code))
@@ -647,12 +686,31 @@ class StockAnalysisPipeline:
                 historical_bars = self.db.get_data_range(code, start_date, end_date)
                 if historical_bars:
                     df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
-                    # Issue #234: Augment with realtime for intraday MA calculation
-                    if self.config.enable_realtime_quote and realtime_quote:
-                        df = self._augment_historical_with_realtime(
-                            df, realtime_quote, code, market=market
+                    basis_is_consistent, basis_label = _historical_price_basis_status(df)
+                    if not basis_is_consistent:
+                        warning = (
+                            f"歷史K線復權口徑{basis_label}，無法確認整段價格序列一致；"
+                            "已停用均線/MACD/RSI及止跌反彈訊號，避免產生錯誤交易判斷。"
                         )
-                    trend_result = self.trend_analyzer.analyze(df, code)
+                        logger.warning("[行情品質] %s(%s) %s", stock_name, code, warning)
+                        turnaround_signal = {
+                            "status": "invalid_data",
+                            "action": "block_signal",
+                            "data_quality": "inconsistent_price_adjustment_basis",
+                            "reason": warning,
+                        }
+                        trend_result = TrendAnalysisResult(code=code)
+                        trend_result.risk_factors.append(warning)
+                    else:
+                        turnaround_signal = detect_turnaround_signal(
+                            [bar.to_dict() for bar in historical_bars]
+                        )
+                        # Issue #234: Augment with realtime for intraday MA calculation
+                        if self.config.enable_realtime_quote and realtime_quote:
+                            df = self._augment_historical_with_realtime(
+                                df, realtime_quote, code, market=market
+                            )
+                        trend_result = self.trend_analyzer.analyze(df, code)
                     logger.info(f"{stock_name}({code}) 趋势分析: {trend_result.trend_status.value}, "
                               f"买入信号={trend_result.buy_signal.value}, 评分={trend_result.signal_score}")
             except Exception as e:
@@ -670,6 +728,7 @@ class StockAnalysisPipeline:
                     chip_data,
                     fundamental_context,
                     trend_result,
+                    turnaround_signal=turnaround_signal,
                     market_phase_context=market_phase_context_dict,
                     market_phase_summary=market_phase_summary,
                     daily_market_context=daily_market_context,
@@ -784,6 +843,7 @@ class StockAnalysisPipeline:
                 fundamental_context,
                 market_phase_context=market_phase_context_dict,
                 portfolio_context=portfolio_context,
+                turnaround_signal=turnaround_signal,
             )
             enhanced_context["market_phase_context"] = market_phase_context_dict
             self._attach_daily_market_context(
@@ -894,6 +954,9 @@ class StockAnalysisPipeline:
                 realtime_data = enhanced_context.get('realtime', {})
                 result.current_price = realtime_data.get('price')
                 result.change_pct = realtime_data.get('change_pct')
+                if isinstance(turnaround_signal, dict):
+                    result.dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+                    result.dashboard["turnaround_signal"] = dict(turnaround_signal)
 
             # Step 7.6: chip_structure fallback (Issue #589) and unavailable collapse
             if result:
@@ -903,7 +966,10 @@ class StockAnalysisPipeline:
             if result:
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
                 action_source_advice = getattr(result, "operation_advice", None)
-                stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                stabilize_decision_with_structure(
+                    result, trend_result, fundamental_context,
+                    turnaround_signal=turnaround_signal,
+                )
                 adjustments = apply_phase_decision_guardrails(
                     result,
                     market_phase_summary=market_phase_summary,
@@ -1009,6 +1075,7 @@ class StockAnalysisPipeline:
         fundamental_context: Optional[Dict[str, Any]] = None,
         market_phase_context: Optional[Dict[str, Any]] = None,
         portfolio_context: Optional[Dict[str, Any]] = None,
+        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         增强分析上下文
@@ -1036,12 +1103,22 @@ class StockAnalysisPipeline:
             enhanced['stock_name'] = realtime_quote.name
         if isinstance(portfolio_context, dict):
             enhanced["portfolio_context"] = dict(portfolio_context)
+        if isinstance(turnaround_signal, dict):
+            enhanced["turnaround_signal"] = dict(turnaround_signal)
 
         # 将运行时搜索窗口透传给 analyzer，避免与全局配置重新读取产生窗口不一致
         enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", 3)
         
         # 添加实时行情（兼容不同数据源的字段差异）
         if realtime_quote:
+            reference_close = None
+            yesterday = enhanced.get("yesterday")
+            if isinstance(yesterday, dict):
+                reference_close = yesterday.get("close")
+            quote_integrity = validate_realtime_quote(
+                realtime_quote, reference_close=reference_close
+            )
+            enhanced["quote_integrity"] = quote_integrity
             # 使用 getattr 安全获取字段，缺失字段返回 None 或默认值
             volume_ratio = getattr(realtime_quote, 'volume_ratio', None)
             quote_source = getattr(realtime_quote, 'source', None)
@@ -1098,7 +1175,12 @@ class StockAnalysisPipeline:
 
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
         # 防护条件：trend_result.ma5 > 0 表示 MA 计算已成功且数据量充足。
-        if realtime_quote and trend_result and trend_result.ma5 > 0:
+        quote_integrity = enhanced.get("quote_integrity") or {}
+        quote_is_trusted = (
+            quote_integrity.get("status") == "pass"
+            and quote_integrity.get("freshness") == "fresh"
+        )
+        if realtime_quote and quote_is_trusted and trend_result and trend_result.ma5 > 0:
             price = getattr(realtime_quote, 'price', None)
             if price is not None and price > 0:
                 yesterday_close = None
@@ -1134,6 +1216,9 @@ class StockAnalysisPipeline:
                     'data_source': f"realtime:{source_name}",
                     'realtime_source': source_name,
                     'is_estimated': True,
+                    # Realtime quote is an in-progress bar unless a caller explicitly
+                    # supplies a finalized market-phase state.
+                    'is_partial_bar': True,
                 }
                 estimated_fields = [
                     'close', 'open', 'high', 'low', 'ma5', 'ma10', 'ma20',
@@ -1474,6 +1559,7 @@ class StockAnalysisPipeline:
         portfolio_context: Optional[Dict[str, Any]] = None,
         market_structure_context: Optional[Dict[str, Any]] = None,
         analysis_target: Optional[AnalysisTarget] = None,
+        turnaround_signal: Optional[Dict[str, Any]] = None,
     ) -> Optional[AnalysisResult]:
         """
         使用 Agent 模式分析单只股票。
@@ -1510,6 +1596,8 @@ class StockAnalysisPipeline:
             }
             if isinstance(portfolio_context, dict):
                 initial_context["portfolio_context"] = dict(portfolio_context)
+            if isinstance(turnaround_signal, dict):
+                initial_context["turnaround_signal"] = dict(turnaround_signal)
             if self.analysis_skills is not None:
                 initial_context["skills"] = self.analysis_skills
             if market_phase_context is not None:
@@ -1672,15 +1760,54 @@ class StockAnalysisPipeline:
             if result and getattr(self.config, "report_integrity_enabled", False):
                 from src.analyzer import check_content_integrity, apply_placeholder_fill
 
+                is_buy_decision = getattr(result, "decision_type", None) == "buy"
                 pass_integrity, missing = check_content_integrity(
                     result,
                     require_phase_decision=isinstance(market_phase_summary, dict),
+                    require_complete_buy_plan=is_buy_decision,
                 )
                 if not pass_integrity:
                     apply_placeholder_fill(result, missing)
+                    # A buy recommendation is not executable unless entry, stop and
+                    # target are all numeric and internally consistent. Do not let
+                    # placeholder-filled price levels retain a BUY decision.
+                    invalid_buy_plan = is_buy_decision and any(
+                        field.startswith("dashboard.battle_plan.sniper_points.")
+                        for field in missing
+                    )
+                    if invalid_buy_plan:
+                        result.decision_type = "hold"
+                        # Clear any stale explicit BUY action so the final action
+                        # resolver rebuilds it from the downgraded neutral advice.
+                        result.action = None
+                        result.action_label = None
+                        result.operation_advice = localize_operation_advice(
+                            "觀望",
+                            normalize_report_language(
+                                getattr(result, "report_language", "zh")
+                            ),
+                        )
+                        if isinstance(result.dashboard, dict):
+                            result.dashboard["decision_type"] = "hold"
+                            result.dashboard["operation_advice"] = result.operation_advice
+                            core = result.dashboard.get("core_conclusion")
+                            if not isinstance(core, dict):
+                                core = {}
+                                result.dashboard["core_conclusion"] = core
+                            core["one_sentence"] = (
+                                "買入計畫的進場、停損或目標價未通過完整性檢查，"
+                                "暫不執行買入，等待有效價位補齊。"
+                            )
+                    if isinstance(result.dashboard, dict):
+                        result.dashboard["content_integrity"] = {
+                            "passed": False,
+                            "mode": "agent_weak",
+                            "missing_fields": list(missing),
+                        }
                     logger.info(
-                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全",
+                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全%s",
                         missing,
+                        "；买入计划降级为观望" if invalid_buy_plan else "",
                     )
             # chip_structure fallback (Issue #589), before save_analysis_history
             if result and chip_data is not None:
@@ -1709,13 +1836,19 @@ class StockAnalysisPipeline:
                 )
                 action_chain_valid = pipeline_start_action is not None
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
+                if isinstance(turnaround_signal, dict):
+                    result.dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+                    result.dashboard["turnaround_signal"] = dict(turnaround_signal)
                 realtime_data = initial_context.get("realtime_quote", {})
                 if isinstance(realtime_data, dict):
                     result.current_price = realtime_data.get("price")
                     result.change_pct = realtime_data.get("change_pct")
                 action_before_guardrail = getattr(result, "action", None)
                 advice_before_guardrail = getattr(result, "operation_advice", None)
-                stabilize_decision_with_structure(result, trend_result, fundamental_context)
+                stabilize_decision_with_structure(
+                    result, trend_result, fundamental_context,
+                    turnaround_signal=turnaround_signal,
+                )
                 self._refresh_decision_action_for_final_result(
                     result,
                     report_type=report_type.value,
@@ -2745,11 +2878,32 @@ class StockAnalysisPipeline:
             return df
         if realtime_quote is None:
             return df
-        price = getattr(realtime_quote, 'price', None)
-        if price is None or not (isinstance(price, (int, float)) and price > 0):
+        # Prefer the persisted per-row basis: ORM-loaded history does not
+        # preserve pandas attrs. Mixed or absent basis is intentionally rejected.
+        adjustment_basis = ""
+        if "price_adjustment_basis" in df.columns:
+            basis_values = [
+                str(value).strip().lower() if pd.notna(value) else ""
+                for value in df["price_adjustment_basis"].tolist()
+            ]
+            if basis_values and all(basis_values) and len(set(basis_values)) == 1:
+                adjustment_basis = basis_values[0]
+            elif any(basis_values):
+                adjustment_basis = "mixed_or_incomplete"
+        if not adjustment_basis:
+            adjustment_basis = str(
+                getattr(df, "attrs", {}).get("price_adjustment_basis", "")
+            ).strip().lower()
+        if adjustment_basis not in {"raw", "none", "unadjusted"}:
+            logger.warning(
+                "[行情品質] %s 歷史K線復權口徑=%s，非已確認原始價，略過即時價格覆蓋",
+                code,
+                adjustment_basis or "unknown",
+            )
             return df
-
-        # 非交易日可跳过实时补齐；异常情况下保持失败开放。
+        # Resolve the market date before choosing the comparison close. If the
+        # history frame already contains today's partial bar, the prior completed
+        # candle is the previous close; otherwise the last row is the previous close.
         enable_realtime_tech = getattr(
             self.config, 'enable_realtime_technical_indicators', True
         )
@@ -2760,13 +2914,33 @@ class StockAnalysisPipeline:
         market_today = get_market_now(market).date()
         if market and not is_market_open(market, market_today):
             return df
-
         last_val = df['date'].max()
         last_date = (
             last_val.date() if hasattr(last_val, 'date') else
             (last_val if isinstance(last_val, date) else pd.Timestamp(last_val).date())
         )
-        yesterday_close = float(df.iloc[-1]['close']) if len(df) > 0 else price
+        previous_bar_index = -2 if last_date >= market_today and len(df) >= 2 else -1
+        reference_close = None
+        try:
+            reference_close = float(df.iloc[previous_bar_index]['close'])
+        except (TypeError, ValueError, KeyError, IndexError):
+            reference_close = None
+        quote_integrity = validate_realtime_quote(
+            realtime_quote, reference_close=reference_close,
+            reference_close_is_unadjusted=True,
+        )
+        if quote_integrity.get("status") != "pass" or quote_integrity.get("freshness") != "fresh":
+            logger.warning(
+                "[行情品質] %s 即時報價未通過完整性檢查，略過即時 K 線覆蓋：%s",
+                code,
+                quote_integrity.get("issues") or quote_integrity.get("freshness"),
+            )
+            return df
+        price = getattr(realtime_quote, 'price', None)
+        if price is None or not (isinstance(price, (int, float)) and price > 0):
+            return df
+
+        yesterday_close = reference_close if reference_close is not None else price
         open_p = getattr(realtime_quote, 'open_price', None) or getattr(
             realtime_quote, 'pre_close', None
         ) or yesterday_close
@@ -2792,9 +2966,21 @@ class StockAnalysisPipeline:
             if amt is not None:
                 df.loc[idx, 'amount'] = amt
             if pct is not None:
-                df.loc[idx, 'pct_chg'] = pct
+                # Historical fixtures/providers may infer pct_chg as int64 when all
+                # prior values are whole numbers. Promote before writing a fractional
+                # realtime percentage to avoid pandas LossySetitemError.
+                df['pct_chg'] = pd.to_numeric(
+                    df['pct_chg'], errors='coerce'
+                ).astype(float)
+                df.loc[idx, 'pct_chg'] = float(pct)
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
+            df.loc[idx, 'data_source'] = f"realtime:{source_name}"
+            df.loc[idx, 'is_partial_bar'] = True
         else:
-            # 追加一行虚拟的当日实时 K 线。
+            # 追加一行虚擬的當日即時K線，明確標示未完成日K。
+            source = getattr(realtime_quote, 'source', None)
+            source_name = getattr(source, 'value', source) or "unknown"
             new_row = {
                 'code': code,
                 'date': market_today,
@@ -2805,6 +2991,8 @@ class StockAnalysisPipeline:
                 'volume': vol,
                 'amount': amt if amt is not None else 0,
                 'pct_chg': pct if pct is not None else 0,
+                'data_source': f"realtime:{source_name}",
+                'is_partial_bar': True,
             }
             new_df = pd.DataFrame([new_row])
             df = pd.concat([df, new_df], ignore_index=True)
@@ -3103,6 +3291,7 @@ class StockAnalysisPipeline:
             metadata={
                 "query_id": query_id,
                 "trigger_source": self.query_source,
+                "realtime_quote_enabled": bool(getattr(self.config, "enable_realtime_quote", False)),
             },
             portfolio_context=dict(portfolio_context) if isinstance(portfolio_context, dict) else None,
         )
@@ -3153,6 +3342,7 @@ class StockAnalysisPipeline:
             metadata={
                 "query_id": query_id,
                 "trigger_source": self.query_source,
+                "realtime_quote_enabled": bool(getattr(self.config, "enable_realtime_quote", False)),
             },
             portfolio_context=dict(portfolio_context) if isinstance(portfolio_context, dict) else None,
         )

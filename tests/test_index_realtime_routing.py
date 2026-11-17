@@ -307,6 +307,7 @@ class AugmentRealtimeIndexMarketTestCase(unittest.TestCase):
                 }
             ]
         )
+        df.attrs["price_adjustment_basis"] = "raw"
         quote = SimpleNamespace(
             price=101.0,
             open_price=100.0,
@@ -314,8 +315,10 @@ class AugmentRealtimeIndexMarketTestCase(unittest.TestCase):
             low=99.0,
             volume=200,
             amount=None,
-            change_pct=1.0,
-            pre_close=None,
+            change_pct=(101.0 - 100.5) / 100.5 * 100,
+            change_amount=0.5,
+            pre_close=100.5,
+            is_stale=False,
         )
         with patch("src.core.pipeline.is_market_open", return_value=True), patch(
             "src.core.pipeline.get_market_now",

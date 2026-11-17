@@ -360,6 +360,8 @@ class BaseFetcher(ABC):
     name: str = "BaseFetcher"
     priority: int = 99  # 优先级数字越小越优先
     allow_empty_daily_data: bool = False
+    # Explicit OHLC price basis for daily history. Unknown is deliberately fail-closed.
+    price_adjustment_basis: str = "unknown"
     
     @abstractmethod
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -526,6 +528,9 @@ class BaseFetcher(ABC):
             
             # Step 4: 计算技术指标
             df = self._calculate_indicators(df)
+            # DataFrame.attrs may be lost when frames are rebuilt; set it only
+            # after normalization, cleaning and indicator calculation are complete.
+            df.attrs["price_adjustment_basis"] = self.price_adjustment_basis
 
             elapsed = time.time() - request_start
             logger.info(
@@ -555,19 +560,82 @@ class BaseFetcher(ABC):
         """
         df = df.copy()
         
-        # 确保日期列为 datetime 类型
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
-        
-        # 数值列类型转换
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
+        # Daily bars must carry one unambiguous trading date per row. Normalize
+        # timestamps to calendar dates before duplicate detection so two rows
+        # from the same session cannot inflate indicators or fake a retest.
+        if 'date' not in df.columns:
+            raise DataFetchError("日线数据缺少 date 日期字段")
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        if df['date'].isna().any():
+            invalid_count = int(df['date'].isna().sum())
+            raise DataFetchError(f"日线数据包含 {invalid_count} 笔无效交易日期")
+        df['date'] = df['date'].dt.normalize()
+        duplicate_mask = df['date'].duplicated(keep=False)
+        if duplicate_mask.any():
+            duplicate_dates = (
+                df.loc[duplicate_mask, 'date']
+                .dt.strftime('%Y-%m-%d')
+                .drop_duplicates()
+                .tolist()
+            )
+            preview = ", ".join(duplicate_dates[:5])
+            raise DataFetchError(
+                f"日线数据包含重复交易日期（{int(duplicate_mask.sum())} 笔）：{preview}"
+            )
+
+        # A daily candle is only usable when all OHLCV fields are present.
+        # Reject the batch instead of silently dropping malformed sessions: doing
+        # so could make indicators look continuous while hiding missing candles.
+        required_ohlcv = ['open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_ohlcv if col not in df.columns]
+        if missing_columns:
+            raise DataFetchError(
+                "日线数据缺少必要 OHLCV 字段: " + ", ".join(missing_columns)
+            )
+
+        # 数值列类型转换；amount / pct_chg remain optional metadata.
+        numeric_cols = required_ohlcv + ['amount', 'pct_chg']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # 去除关键列为空的行
-        df = df.dropna(subset=['close', 'volume'])
-        
+
+        ohlcv = df[required_ohlcv].to_numpy(dtype=float)
+        invalid_numeric = ~np.isfinite(ohlcv).all(axis=1)
+        if invalid_numeric.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_numeric.sum())} 笔 OHLCV 空值或非有限数值"
+            )
+
+        open_prices = df['open'].to_numpy(dtype=float)
+        high_prices = df['high'].to_numpy(dtype=float)
+        low_prices = df['low'].to_numpy(dtype=float)
+        close_prices = df['close'].to_numpy(dtype=float)
+        volumes = df['volume'].to_numpy(dtype=float)
+
+        invalid_prices = (
+            (open_prices <= 0) | (high_prices <= 0) |
+            (low_prices <= 0) | (close_prices <= 0)
+        )
+        if invalid_prices.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_prices.sum())} 笔非正 OHLC 价格"
+            )
+
+        invalid_volume = volumes < 0
+        if invalid_volume.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_volume.sum())} 笔负成交量"
+            )
+
+        invalid_range = (
+            (high_prices < np.maximum.reduce([open_prices, low_prices, close_prices])) |
+            (low_prices > np.minimum.reduce([open_prices, high_prices, close_prices]))
+        )
+        if invalid_range.any():
+            raise DataFetchError(
+                f"日线数据包含 {int(invalid_range.sum())} 笔 OHLC 高低價關係錯誤"
+            )
+
         # 按日期升序排序
         df = df.sort_values('date', ascending=True).reset_index(drop=True)
         
@@ -3136,9 +3204,16 @@ class DataFetcherManager:
         # 3. 依次尝试各个数据源
         from .akshare_fetcher import _is_us_code
         is_us = _is_us_code(stock_code)
+        is_tw = _is_tw_market(stock_code)
         _US_CAPABLE_FETCHERS = {"YfinanceFetcher", "LongbridgeFetcher", "FinnhubFetcher", "AlphaVantageFetcher"}
+        # Taiwan Yahoo-suffix symbols must never fan out to mainland China-only
+        # name providers (AkShare A-share, Pytdx, Baostock, Efinance, Tencent).
+        # Keep the fallback deterministic: static map first, then Yahoo Finance.
+        _TW_CAPABLE_FETCHERS = {"YfinanceFetcher"}
         for fetcher in self._get_fetchers_snapshot():
             if not hasattr(fetcher, 'get_stock_name'):
+                continue
+            if is_tw and fetcher.name not in _TW_CAPABLE_FETCHERS:
                 continue
             if is_us and fetcher.name not in _US_CAPABLE_FETCHERS:
                 continue
@@ -4149,73 +4224,78 @@ class DataFetcherManager:
                 ["not supported for offshore market"],
             )
 
-        # institution: tw (台股) has a free official 三大法人 (institutional net buy/sell)
-        # feed (TWSE T86 / TPEx OpenAPI); every other offshore market keeps not_supported.
-        # tw-only + strictly additive + fail-open: any error or no-data -> not_supported,
-        # which never interrupts the main analysis. Raw net figures only — no derived
-        # signal / score / schema (per the v2 scope confirmed on issue #1777).
+        # Taiwan has an applicable official TWSE/TPEx feed. Distinguish an unavailable
+        # attempt from a market that genuinely has no supported institutional feed.
         tw_record = None
-        if market == "tw":
-            fetcher = getattr(self, "_tw_institutional_fetcher", None)
+        institution_errors = []
+        if market == 'tw':
+            fetcher = getattr(self, '_tw_institutional_fetcher', None)
             if fetcher is None:
-                # Wiring (import + construct) is a one-time op; a failure here is a
-                # programming / deploy bug, so log it LOUD (error). Still fail-open
-                # (never interrupt the main analysis — a hard requirement of #1777).
                 try:
                     from data_provider.tw_institutional_fetcher import TwInstitutionalFetcher
 
                     fetcher = TwInstitutionalFetcher()
                     self._tw_institutional_fetcher = fetcher
-                except Exception as exc:  # noqa: BLE001 - wiring failure: loud but fail-open
-                    logger.error("[tw-inst] fetcher init failed (wiring bug?) code=%s: %s", stock_code, exc)
+                except Exception as exc:  # noqa: BLE001 - fail-open
+                    logger.error('[tw-inst] fetcher init failed code=%s: %s', stock_code, exc)
+                    institution_errors.append('官方三大法人資料抓取器初始化失敗')
                     fetcher = None
-            # fetch_timeout == 0 disables per-fetch fundamental fetches (same as valuation /
-            # bundle above, which gate on fetch_timeout); honour that for institution too so
-            # the FUNDAMENTAL_FETCH_TIMEOUT_SECONDS=0 config semantic is not bypassed.
-            if fetcher is not None and fetch_timeout > 0:
-                # The tw institution block is a WHOLE-MARKET download (~4-5s), far slower
-                # than the per-symbol quote/bundle fetches, and it is the LAST offshore
-                # block. When enabled, give it the full REMAINING stage budget rather than
-                # the ~3s per-fetch cap that starves it and makes the first/only stock of a
-                # run coin-flip between ok and not_supported. Bounded by the stage deadline
-                # via _run_with_retry, so it fails open (never blocks).
+
+            if fetch_timeout <= 0:
+                institution_errors.append('官方三大法人資料抓取依設定停用')
+            elif fetcher is not None:
                 inst_timeout = max(stage_timeout - (time.time() - start_ts), 0.0)
                 if inst_timeout > 0:
                     tw_record, inst_err, _inst_ms = self._run_with_retry(
                         lambda: fetcher.get_institutional_net(stock_code),
                         inst_timeout,
-                        "fundamental_tw_institution",
+                        'fundamental_tw_institution',
                     )
                     if inst_err:
-                        logger.warning("[tw-inst] fetch failed/timeout code=%s: %s", stock_code, inst_err)
+                        logger.warning('[tw-inst] fetch failed/timeout code=%s: %s', stock_code, inst_err)
+                        institution_errors.append(f'官方三大法人資料抓取失敗：{inst_err}')
                 else:
-                    tw_record = None
-        # status 'ok' only when the record carries all core net figures (a genuine 0 is
-        # kept — 0 is not None); None / missing core field / fetch failure -> not_supported.
-        _tw_core = ("foreign_net", "trust_net", "dealer_net", "total_net")
-        if tw_record is not None and all(tw_record.get(key) is not None for key in _tw_core):
-            institution_status = "ok"
-            result_ctx["institution"] = self._build_fundamental_block(
-                "ok",
-                {
-                    "foreign_net": tw_record.get("foreign_net"),
-                    "trust_net": tw_record.get("trust_net"),
-                    "dealer_net": tw_record.get("dealer_net"),
-                    "total_net": tw_record.get("total_net"),
-                    "unit": tw_record.get("unit"),
-                    "date": tw_record.get("date"),
-                    "source": tw_record.get("source"),
-                },
-                [{"provider": tw_record.get("source", "tw-institutional"), "result": "ok", "duration_ms": 0}],
-                [],
-            )
+                    institution_errors.append('官方三大法人資料抓取逾時，未取得有效資料')
+            elif not institution_errors:
+                institution_errors.append('官方三大法人資料抓取器不可用')
+
+            _tw_core = ('foreign_net', 'trust_net', 'dealer_net', 'total_net')
+            if tw_record is not None and all(tw_record.get(key) is not None for key in _tw_core):
+                institution_status = 'ok'
+                result_ctx['institution'] = self._build_fundamental_block(
+                    'ok',
+                    {
+                        'foreign_net': tw_record.get('foreign_net'),
+                        'trust_net': tw_record.get('trust_net'),
+                        'dealer_net': tw_record.get('dealer_net'),
+                        'total_net': tw_record.get('total_net'),
+                        'unit': tw_record.get('unit'),
+                        'date': tw_record.get('date'),
+                        'source': tw_record.get('source'),
+                    },
+                    [{'provider': tw_record.get('source', 'tw-institutional'), 'result': 'ok', 'duration_ms': 0}],
+                    [],
+                )
+            else:
+                institution_status = 'unavailable'
+                if tw_record is not None:
+                    missing = [key for key in _tw_core if tw_record.get(key) is None]
+                    institution_errors.append('官方三大法人資料缺少必要欄位：' + ', '.join(missing))
+                elif not institution_errors:
+                    institution_errors.append('官方三大法人資料暫無有效回應（可能休市、尚未更新或來源暫時不可用）')
+                result_ctx['institution'] = self._build_fundamental_block(
+                    'unavailable',
+                    {},
+                    [{'provider': 'TWSE/TPEx', 'result': 'unavailable', 'duration_ms': 0}],
+                    institution_errors,
+                )
         else:
-            institution_status = "not_supported"
-            result_ctx["institution"] = self._build_fundamental_block(
-                "not_supported",
+            institution_status = 'not_supported'
+            result_ctx['institution'] = self._build_fundamental_block(
+                'not_supported',
                 {},
-                [{"provider": "fundamental_pipeline", "result": "not_supported", "duration_ms": 0}],
-                ["not supported for offshore market"],
+                [{'provider': 'fundamental_pipeline', 'result': 'not_supported', 'duration_ms': 0}],
+                ['台灣以外市場不適用 TWSE/TPEx 三大法人資料'],
             )
 
         result_ctx["belong_boards"] = belong_boards or futu_boards
@@ -4240,6 +4320,7 @@ class DataFetcherManager:
             "valuation": valuation_status,
             "growth": growth_status,
             "earnings": earnings_status,
+            "institution": institution_status,
             "capital_flow": capital_flow_status,
             "boards": boards_status,
         }
@@ -4252,7 +4333,7 @@ class DataFetcherManager:
         if all(value == "not_supported" for value in status_values):
             result_ctx["status"] = "not_supported"
             result_ctx["data_quality"] = "unavailable"
-        elif "failed" in status_values or "partial" in status_values:
+        elif any(value in ("failed", "partial", "unavailable", "disabled") for value in status_values) or institution_status in ("unavailable", "disabled"):
             result_ctx["status"] = "partial"
             result_ctx["data_quality"] = "partial"
         else:

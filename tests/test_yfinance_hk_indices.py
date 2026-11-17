@@ -81,6 +81,28 @@ class TestHkIndexSymbolMapping(unittest.TestCase):
         self.assertNotIn('^HSCEI', ticker_calls, '^HSCEI 不是有效的 Yahoo Finance 符号')
 
 
+class TestTaiwanStockNameLookup(unittest.TestCase):
+    def test_yfinance_resolves_taiwan_suffix_stock_name(self):
+        from data_provider.yfinance_fetcher import YfinanceFetcher
+
+        ticker = MagicMock()
+        ticker.info = {"shortName": "Taiwan Semiconductor"}
+        with patch("yfinance.Ticker", return_value=ticker) as ticker_factory:
+            name = YfinanceFetcher().get_stock_name("6488.TW")
+
+        self.assertEqual(name, "Taiwan Semiconductor")
+        ticker_factory.assert_called_once_with("6488.TW")
+
+    def test_yfinance_rejects_mainland_numeric_stock_code_for_name_lookup(self):
+        from data_provider.yfinance_fetcher import YfinanceFetcher
+
+        with patch("yfinance.Ticker") as ticker_factory:
+            name = YfinanceFetcher().get_stock_name("000001")
+
+        self.assertIsNone(name)
+        ticker_factory.assert_not_called()
+
+
 class TestGetHkMainIndices(unittest.TestCase):
     """_get_hk_main_indices 港股指数批量获取测试"""
 

@@ -322,12 +322,89 @@ class _AllModelsFailedError(Exception):
 
 
 from src.utils.data_processing import normalize_report_signal_attribution
+from src.utils.sniper_points import parse_sniper_value
+
+
+def _extract_sniper_price(value: Any) -> Optional[float]:
+    """Use the same price parser as downstream sniper-point consumers."""
+    if isinstance(value, bool):
+        return None
+    return parse_sniper_value(value)
+
+
+def _extract_sniper_price_bounds(value: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Return the low/high bounds for a numeric entry range, or a single level."""
+    if isinstance(value, bool) or value is None:
+        return None, None
+    if isinstance(value, (int, float)):
+        price = _extract_sniper_price(value)
+        return (price, price) if price is not None else (None, None)
+
+    text = str(value).replace(",", "").replace("，", "").strip()
+    # Only interpret an explicit two-sided range; ordinary single prices keep
+    # the shared parser semantics used by report rendering.
+    matches = re.findall(r"(?<![A-Za-z])(?<![A-Za-z0-9])([0-9]+(?:\.[0-9]+)?)\s*(?:-|－|~|～|至|到)\s*([0-9]+(?:\.[0-9]+)?)", text)
+    if matches:
+        low, high = map(float, matches[-1])
+        if math.isfinite(low) and math.isfinite(high) and low > 0 and high > 0:
+            return min(low, high), max(low, high)
+        return None, None
+    price = _extract_sniper_price(value)
+    return (price, price) if price is not None else (None, None)
+
+
+def check_battle_plan_price_integrity(result: "AnalysisResult") -> List[str]:
+    """Return sniper price fields that are structurally invalid.
+
+    Buy plans must place stop-loss below each stated entry and take-profit above
+    each stated entry. Hold plans are deliberately exempt from that ordering:
+    an existing holder may use a trailing stop above the original entry cost.
+    """
+    dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+    battle = dashboard.get("battle_plan")
+    battle = battle if isinstance(battle, dict) else {}
+    sniper = battle.get("sniper_points")
+    sniper = sniper if isinstance(sniper, dict) else {}
+    keys = ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")
+    prices = {key: _extract_sniper_price(sniper.get(key)) for key in keys}
+    invalid: List[str] = []
+
+    for key, raw in ((key, sniper.get(key)) for key in keys):
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            number = float(raw)
+            if not math.isfinite(number) or number <= 0:
+                invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
+        elif isinstance(raw, str) and raw.strip():
+            # A populated numeric-looking level that resolves to zero/negative
+            # is invalid; descriptive placeholders remain untouched.
+            numeric_tokens = re.findall(r"-?\d+(?:\.\d+)?", raw)
+            if numeric_tokens and _extract_sniper_price(raw) is None:
+                invalid.append(f"dashboard.battle_plan.sniper_points.{key}")
+
+    if getattr(result, "decision_type", "") == "buy":
+        entry_bounds = [
+            _extract_sniper_price_bounds(sniper.get(key))
+            for key in ("ideal_buy", "secondary_buy")
+            if prices[key] is not None
+        ]
+        lows = [low for low, high in entry_bounds if low is not None]
+        highs = [high for low, high in entry_bounds if high is not None]
+        stop = prices["stop_loss"]
+        target = prices["take_profit"]
+        # Protect the entire stated entry range: stop must be below its lowest
+        # price, and target must be above its highest price.
+        if stop is not None and lows and stop >= min(lows):
+            invalid.append("dashboard.battle_plan.sniper_points.stop_loss")
+        if target is not None and highs and target <= max(highs):
+            invalid.append("dashboard.battle_plan.sniper_points.take_profit")
+    return list(dict.fromkeys(invalid))
 
 
 def check_content_integrity(
     result: "AnalysisResult",
     *,
     require_phase_decision: bool = False,
+    require_complete_buy_plan: bool = False,
 ) -> Tuple[bool, List[str]]:
     """
     Check mandatory fields for report content integrity.
@@ -383,6 +460,15 @@ def check_content_integrity(
         stop_loss = sp.get("stop_loss")
         if _is_invalid_stop_loss(stop_loss):
             missing.append("dashboard.battle_plan.sniper_points.stop_loss")
+    missing.extend(check_battle_plan_price_integrity(result))
+    if require_complete_buy_plan and result.decision_type == "buy":
+        battle = dash.get("battle_plan")
+        battle = battle if isinstance(battle, dict) else {}
+        sniper = battle.get("sniper_points")
+        sniper = sniper if isinstance(sniper, dict) else {}
+        for key in ("ideal_buy", "stop_loss", "take_profit"):
+            if _extract_sniper_price(sniper.get(key)) is None:
+                missing.append(f"dashboard.battle_plan.sniper_points.{key}")
     if require_phase_decision:
         phase_decision = dash.get("phase_decision")
         phase_decision = phase_decision if isinstance(phase_decision, dict) else {}
@@ -453,6 +539,7 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             ko="모델이 단계별 신뢰도 근거를 제공하지 않았습니다",
         ),
     }
+    invalid_sniper_prices = set(check_battle_plan_price_integrity(result))
     for field in missing_fields:
         if field == "sentiment_score":
             result.sentiment_score = 50
@@ -486,7 +573,7 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             if _is_invalid_risk_alerts(intelligence.get("risk_alerts")):
                 risk_warning_values = _normalize_risk_warning_values(result.risk_warning)
                 intelligence["risk_alerts"] = risk_warning_values
-        elif field == "dashboard.battle_plan.sniper_points.stop_loss":
+        elif field.startswith("dashboard.battle_plan.sniper_points."):
             if not result.dashboard:
                 result.dashboard = {}
             battle_plan = result.dashboard.get("battle_plan")
@@ -497,8 +584,11 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
             if not isinstance(sniper_points, dict):
                 sniper_points = {}
                 battle_plan["sniper_points"] = sniper_points
-            if _is_invalid_stop_loss(sniper_points.get("stop_loss")):
-                sniper_points["stop_loss"] = placeholder
+            price_key = field.rsplit(".", 1)[-1]
+            if price_key in {"ideal_buy", "secondary_buy", "stop_loss", "take_profit"}:
+                current_value = sniper_points.get(price_key)
+                if field in invalid_sniper_prices or (price_key == "stop_loss" and _is_invalid_stop_loss(current_value)):
+                    sniper_points[price_key] = placeholder
         elif field.startswith("dashboard.phase_decision."):
             if not result.dashboard:
                 result.dashboard = {}
@@ -1044,6 +1134,7 @@ def stabilize_decision_with_structure(
     result: "AnalysisResult",
     trend_result: Any = None,
     fundamental_context: Optional[Dict[str, Any]] = None,
+    turnaround_signal: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Calibrate aggressive buy/sell advice with price levels and capital flow.
@@ -1091,9 +1182,11 @@ def stabilize_decision_with_structure(
         )
 
         flow_bias, flow_reason = _capital_flow_bias_with_status(fundamental_context)
+        turnaround_status = str((turnaround_signal or {}).get("status") or "")
+        early_rebound_setup = turnaround_status in {"probe_candidate", "breakout_wait_retest", "rebound_confirmed", "trend_confirmed"} and not _has_structural_risk_alert(result)
         if flow_bias == "unavailable":
             if isinstance(fundamental_context, dict) and "capital_flow" in fundamental_context:
-                if decision_type == "buy" or advice_decision_type == "buy":
+                if (decision_type == "buy" or advice_decision_type == "buy") and not early_rebound_setup:
                     _downgrade_buy_without_capital_flow(
                         result,
                         language,
@@ -1102,7 +1195,7 @@ def stabilize_decision_with_structure(
                         resistance=resistance,
                         flow_status=flow_reason,
                     )
-                else:
+                elif not early_rebound_setup:
                     _set_decision_stability_unavailable(
                         result,
                         language,
@@ -1111,7 +1204,8 @@ def stabilize_decision_with_structure(
                         resistance=resistance,
                         flow_status=flow_reason,
                     )
-            return
+            if not early_rebound_setup:
+                return
 
         if current_price is None:
             return
@@ -1144,7 +1238,7 @@ def stabilize_decision_with_structure(
                     resistance=resistance,
                     flow_bias=flow_bias,
                 )
-            elif flow_bias == "outflow" and not breakout:
+            elif flow_bias == "outflow" and not breakout and not early_rebound_setup:
                 _downgrade_to_structural_hold(
                     result,
                     language,
@@ -4238,6 +4332,21 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
                 result.model_used = model_used
                 result.report_language = report_language
                 normalize_chip_structure_availability(result, context.get("chip"))
+                # Apply deterministic source-backed report guards after LLM parsing.
+                # These helpers existed but were not wired into the live analysis path,
+                # allowing unsupported buy/sell wording and missing price fields to pass
+                # through into the delivered dashboard.
+                fill_price_position_if_needed(
+                    result,
+                    context.get("trend_analysis"),
+                    context.get("realtime"),
+                )
+                stabilize_decision_with_structure(
+                    result,
+                    context.get("trend_analysis"),
+                    context.get("fundamental_context"),
+                    turnaround_signal=context.get("turnaround_signal"),
+                )
 
                 # 内容完整性校验（可选）
                 if not config.report_integrity_enabled:
@@ -4493,6 +4602,31 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 | 60日涨跌幅 | {rt.get('change_60d', 'N/A')}% | 中期表现 |
 """
 
+        # Deterministic quote-integrity diagnostics are generated before the LLM call.
+        # A warning/unknown status must constrain the recommendation, not be ignored.
+        quote_integrity = context.get("quote_integrity")
+        if isinstance(quote_integrity, dict):
+            integrity_status = quote_integrity.get("status", "unknown")
+            integrity_freshness = quote_integrity.get("freshness", "unknown")
+            integrity_issues = quote_integrity.get("issues") or []
+            integrity_pct = quote_integrity.get("calculated_pct")
+            integrity_change = quote_integrity.get("calculated_change")
+            prompt += f"""
+### 行情資料品質檢查（程式計算，優先於模型推測）
+- 檢查狀態：{integrity_status}
+- 報價新鮮度：{integrity_freshness}
+- 系統依昨收重算漲跌額：{integrity_change if integrity_change is not None else '無法計算'}
+- 系統依昨收重算漲跌幅：{integrity_pct if integrity_pct is not None else '無法計算'}%
+- 異常代碼：{', '.join(str(item) for item in integrity_issues) if integrity_issues else '無'}
+
+**強制規則：**
+1. 若檢查狀態不是 pass，或新鮮度不是 fresh，必須明確標示行情資料待確認。
+2. 若出現 change_amount_mismatch 或 change_pct_mismatch，不得自行挑選看似合理的欄位，也不得把矛盾資料當成事實。
+3. 若昨收缺失、資料過期或關鍵欄位不完整，不得給出依賴該行情的精確買入價、停損價或強烈買賣結論；應降級為觀察/待確認，並列出缺少的資料。
+4. 不得把缺值（N/A/None）描述成零、縮量、放量或沒有風險。
+5. 以上程式檢查結果不可被新聞敘述、技術指標或模型信心分數覆蓋。
+"""
+
         # 添加财报与分红（价值投资口径）
         fundamental_context = context.get("fundamental_context") if isinstance(context, dict) else None
         earnings_block = (
@@ -4510,6 +4644,13 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             if isinstance(earnings_data, dict)
             else {}
         )
+        growth_block = (
+            fundamental_context.get("growth", {})
+            if isinstance(fundamental_context, dict)
+            else {}
+        )
+        growth_data = growth_block.get("data", {}) if isinstance(growth_block, dict) else {}
+        growth_data = growth_data if isinstance(growth_data, dict) else {}
         dividend_metrics = (
             earnings_data.get("dividend", {})
             if isinstance(earnings_data, dict)
@@ -4522,16 +4663,30 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             ttm_cash = dividend_metrics.get("ttm_cash_dividend_per_share", "N/A")
             ttm_count = dividend_metrics.get("ttm_event_count", "N/A")
             report_date = financial_report.get("report_date", "N/A")
+            revenue_basis = financial_report.get("revenue_basis", "unknown")
+            profit_basis = financial_report.get("net_profit_basis", "unknown")
+            cashflow_basis = financial_report.get("operating_cash_flow_basis", "unknown")
+            roe_basis = financial_report.get("roe_basis", growth_data.get("roe_basis", "unknown"))
+            gross_margin_basis = growth_data.get("gross_margin_basis", "unknown")
             if english:
+                prompt += (
+                    "\n**Period integrity rule:** Never describe a TTM/info metric as a quarterly result. "
+                    "Only quarterly_statement is a reported quarter; ttm / ttm_info is trailing-12-month "
+                    "or provider summary data; provider_reported_growth is a vendor ratio with its own period. "
+                    "Keep each basis label attached to its metric and do not infer a missing quarter value.\n"
+                )
                 prompt += f"""
 ### Financials and Dividends (value-investing view)
 | Indicator | Value | Note |
 |------|------|------|
 | Latest Report Period | {report_date} | From structured financial report fields |
-| Revenue | {financial_report.get('revenue', 'N/A')} | |
-| Net Profit Attributable to Parent | {financial_report.get('net_profit_parent', 'N/A')} | |
-| Operating Cash Flow | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| Revenue | {financial_report.get('revenue', 'N/A')} | basis={revenue_basis} |
+| Net Profit Attributable to Parent | {financial_report.get('net_profit_parent', 'N/A')} | basis={profit_basis} |
+| Operating Cash Flow | {financial_report.get('operating_cash_flow', 'N/A')} | basis={cashflow_basis} |
+| ROE | {financial_report.get('roe', growth_data.get('roe', 'N/A'))} | basis={roe_basis} |
+| Revenue YoY | {growth_data.get('revenue_yoy', 'N/A')}% | basis={growth_data.get('revenue_yoy_basis', 'unknown')} |
+| Net Profit YoY | {growth_data.get('net_profit_yoy', 'N/A')}% | basis={growth_data.get('net_profit_yoy_basis', 'unknown')} |
+| Gross Margin | {growth_data.get('gross_margin', 'N/A')}% | basis={gross_margin_basis} |
 | TTM Cash Dividend per Share | {ttm_cash} | Cash dividends only, pre-tax |
 | TTM Dividend Yield | {ttm_yield} | Formula: TTM cash dividend per share / current price × 100% |
 | TTM Dividend Events | {ttm_count} | |
@@ -4539,15 +4694,24 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 > If any field above is N/A or missing, state clearly "data unavailable, cannot judge"; never fabricate.
 """
             else:
+                prompt += (
+                    "\n**財報期間防混用規則：** 只有 quarterly_statement 才能稱為單季財報；"
+                    "ttm / ttm_info 是近十二個月或供應商摘要數值；"
+                    "provider_reported_growth 是供應商回報的成長率，期間未必等同單季。"
+                    "每個指標必須保留自己的期間標籤，不得將 TTM 毛利率寫成第三季毛利率，也不得自行補造缺失數字。\n"
+                )
                 prompt += f"""
 ### 财报与分红（价值投资口径）
 | 指标 | 数值 | 说明 |
 |------|------|------|
 | 最近报告期 | {report_date} | 来自结构化财报字段 |
-| 营业收入 | {financial_report.get('revenue', 'N/A')} | |
-| 归母净利润 | {financial_report.get('net_profit_parent', 'N/A')} | |
-| 经营现金流 | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| 营业收入 | {financial_report.get('revenue', 'N/A')} | 期间口径={revenue_basis} |
+| 归母净利润 | {financial_report.get('net_profit_parent', 'N/A')} | 期间口径={profit_basis} |
+| 经营现金流 | {financial_report.get('operating_cash_flow', 'N/A')} | 期间口径={cashflow_basis} |
+| ROE | {financial_report.get('roe', growth_data.get('roe', 'N/A'))} | 期间口径={roe_basis} |
+| 营收同比 | {growth_data.get('revenue_yoy', 'N/A')}% | 期间口径={growth_data.get('revenue_yoy_basis', 'unknown')} |
+| 净利同比 | {growth_data.get('net_profit_yoy', 'N/A')}% | 期间口径={growth_data.get('net_profit_yoy_basis', 'unknown')} |
+| 毛利率 | {growth_data.get('gross_margin', 'N/A')}% | 期间口径={gross_margin_basis} |
 | 近12个月每股现金分红 | {ttm_cash} | 仅现金分红、税前口径 |
 | TTM 股息率 | {ttm_yield} | 公式：近12个月每股现金分红 / 当前价格 × 100% |
 | TTM 分红事件数 | {ttm_count} | |
@@ -4649,7 +4813,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 ### Three Major Institutional Investors (Taiwan chip filter, net buy/sell, unit: shares)
 | Institution | Net Buy/Sell | Decision Meaning |
 |------|------|----------|
-| Foreign Investors | {institution_data.get('foreign_net', 'N/A')} | Positive = net buying, leans supportive; negative = net selling, leans suppressive |
+| Foreign / Mainland Investors (excluding foreign dealers) | {institution_data.get('foreign_net', 'N/A')} | Positive = net buying, leans supportive; negative = net selling, leans suppressive |
 | Investment Trusts | {institution_data.get('trust_net', 'N/A')} | Persistent trust buying often accompanies medium-term longs |
 | Dealers | {institution_data.get('dealer_net', 'N/A')} | Short-term hedging/proprietary direction reference |
 | Three Institutions Total | {institution_data.get('total_net', 'N/A')} | The most watched chip signal in Taiwan stocks |
@@ -4662,13 +4826,48 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 ### 三大法人动向（台股筹码过滤器，净买卖超，单位:股）
 | 法人 | 净买卖超 | 决策含义 |
 |------|------|----------|
-| 外资 | {institution_data.get('foreign_net', 'N/A')} | 正值=净买超偏支持，负值=净卖超偏压制 |
+| 外陸資（不含外資自營商） | {institution_data.get('foreign_net', 'N/A')} | 正值=淨買超偏支持，負值=淨賣超偏壓制 |
 | 投信 | {institution_data.get('trust_net', 'N/A')} | 投信持续买超常伴随中线做多 |
 | 自营商 | {institution_data.get('dealer_net', 'N/A')} | 短线避险/自营方向参考 |
 | 三大法人合计 | {institution_data.get('total_net', 'N/A')} | 台股最受关注的筹码信号 |
 | 资料日期 | {institution_data.get('date', 'N/A')} | 来源 {institution_data.get('source', 'N/A')} |
 
 > 三大法人是台股的筹码过滤器（相当于 A 股主力资金/龙虎榜的角色，但口径不同、不可混用）：外资与投信同向净买支持价格、同向净卖压制价格。请据此判断台股筹码结构，不要在有本数据时写“筹码结构：数据缺失”。
+"""
+
+
+        elif (
+            detect_market(code) == "tw"
+            and isinstance(institution_block, dict)
+            and institution_block.get("status") in {"unavailable", "disabled"}
+        ):
+            institution_errors = institution_block.get("errors") or []
+            error_text = "；".join(str(item) for item in institution_errors) if institution_errors else "官方資料暫時無法取得"
+            if english:
+                prompt += f"""
+### Taiwan Institutional Data Availability
+- Status: UNAVAILABLE
+- Source: TWSE / TPEx official institutional trading statistics
+- Reason: {error_text}
+
+**Mandatory interpretation rules:**
+1. Institutional net-buy/sell figures were not obtained or validated for this report. Do not present any institution's value as 0.
+2. Do not infer foreign, investment-trust, dealer, or total institutional buying/selling direction from missing data.
+3. Explicitly state that Taiwan institutional-flow data is unavailable and identify the reason above.
+4. Do not use this missing block as evidence for accumulation, distribution, wash trading, or a buy/sell signal.
+"""
+            else:
+                prompt += f"""
+### 台股三大法人資料狀態
+- 狀態：不可取得（UNAVAILABLE）
+- 資料來源：證交所／櫃買中心官方三大法人買賣超統計
+- 原因：{error_text}
+
+**強制解讀規則：**
+1. 本次報告未取得或未能驗證三大法人數據；不得將任何法人數值寫成 0。
+2. 不得根據缺失資料推斷外資、投信、自營商或三大法人合計的買賣超方向。
+3. 報告必須明確揭露「台股三大法人資料不可取得」，並列出上述原因。
+4. 不得把這項缺失當成法人進貨、出貨、洗盤或買賣訊號的證據。
 """
 
         # 添加筹码分布数据
@@ -5202,7 +5401,11 @@ Output the complete Decision Dashboard in JSON format."""
         require_phase_decision: bool = False,
     ) -> Tuple[bool, List[str]]:
         """Delegate to module-level check_content_integrity."""
-        return check_content_integrity(result, require_phase_decision=require_phase_decision)
+        return check_content_integrity(
+            result,
+            require_phase_decision=require_phase_decision,
+            require_complete_buy_plan=True,
+        )
 
     def _build_integrity_complement_prompt(self, missing_fields: List[str], report_language: str = "zh") -> str:
         """Build complement instruction for missing mandatory fields."""

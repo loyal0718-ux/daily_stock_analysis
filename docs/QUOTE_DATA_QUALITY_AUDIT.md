@@ -1,0 +1,144 @@
+# Taiwan quote data-quality audit
+
+## Scope
+
+This change set is intentionally isolated on `king/data-quality-audit-20261110`.
+It does not change the production `main` branch or the scheduled Telegram workflows.
+
+## Confirmed data-contract issue
+
+`UnifiedRealtimeQuote.volume` is documented in this repository as shares, consistent with historical daily bars. Fugle's intraday quote response exposes `total.tradeVolume` and `total.tradeValue`; the official example's `avgPrice`, `tradeVolume`, and `tradeValue` reconcile when the reported volume is interpreted as lots and converted to shares. The adapter now normalizes the volume at the provider boundary. Confirm this against a live Taiwan quote before production merge.
+
+## Deterministic quote integrity
+
+`src/core/quote_integrity.py` checks:
+- price, previous close, reported change, and reported percentage arithmetic;
+- OHLC range consistency;
+- negative volume / turnover values;
+- provider freshness metadata.
+
+It records discrepancies instead of silently selecting or rewriting conflicting fields. Missing values remain unknown, not zero.
+
+The pipeline attaches the result to the analysis context. The LLM prompt instructs the model to disclose unknown or warning data quality and to avoid precise entry/stop levels or strong trade calls when quote integrity is not confirmed.
+
+## Validation status
+
+- Regression tests added for Fugle volume normalization and quote-integrity checks.
+- GitHub Actions run on the initial PR commit reported 2,883 passed, 4 failed, and 1 cancelled shard. The observed failures were in unrelated agent-session database migration and live AkShare capital-flow adapter tests. The new regression tests were added after that run and have not yet been confirmed by CI.
+- Do not merge until the latest branch head has a passing targeted test run and the remaining CI failures are understood.
+
+## Additional findings: intraday volume and Tushare legacy adapter
+
+- The trend analyzer previously compared a partial intraday cumulative volume with five completed daily bars. It now marks this volume as `INTRADAY_UNCONFIRMED`, leaves the ratio as `None`, and does not call it shrink/heavy volume. Missing volume is also `UNAVAILABLE`, not zero.
+- The previous `縮量回調 = 主力洗盤` wording was too strong: volume/price alone cannot identify institutional intent. The wording now describes only lower trading activity.
+- Tushare's legacy `get_realtime_quotes` documents `volume` as shares (the documentation says divide by 100 only to express lots). The adapter incorrectly divided by 100 even though the unified quote contract is shares; this has been corrected and a regression test added.
+- Tushare Pro's documented `rt_k` endpoint reports volume in shares, but the current adapter calls `quotation`, which is not the documented `rt_k` method. Its exact payload contract must be verified before treating that branch as trusted. We do not switch to the documented paid real-time endpoint as part of this free-first patch.
+
+## Adjustment-basis safety
+
+Historical daily data is not guaranteed to share one price-adjustment basis: AkShare requests `adjust="qfq"` and yfinance uses `auto_adjust=True`, while realtime provider quotes are raw market prices. Comparing raw `pre_close` to an adjusted daily close can create false mismatches on ex-dividend / corporate-action dates; mixing a raw intraday price into an adjusted historical series can also distort moving averages.
+
+The integrity validator therefore compares a historical reference close only when the caller explicitly guarantees it is unadjusted. The intraday K-line overlay now requires `df.attrs["price_adjustment_basis"]` to be explicitly `raw`, `none`, or `unadjusted`; otherwise it skips the overlay. The current DB-loaded frame does not yet consistently expose this metadata, so intraday MA overlay may be skipped until the history ingestion/storage layer records adjustment basis. This is intentionally conservative.
+
+## CI follow-up (2026-11-10)
+
+The first complete CI run after introducing the raw-price-basis guard completed syntax, lint, deterministic checks, AI governance, and Docker build successfully. Backend shards 1 and 2 failed on a mix of existing unrelated failures and integration tests that still encoded the pre-guard realtime-overlay behavior; shard 3 passed.
+
+The integration failures exposed two real contract details:
+- When the historical frame already contains today's partial bar, the correct comparison close is the prior completed candle (`df.iloc[-2]`), not today's partial close.
+- Realtime-augmented rows must be marked `data_source=realtime:<provider>` and `is_partial_bar=true`; otherwise downstream volume analysis can mistake a partial cumulative volume for a completed daily bar.
+
+Both are now corrected. Test fixtures now explicitly declare raw/unadjusted history and internally consistent provider previous-close / change / percent / freshness metadata. These follow-up commits have not yet been covered by a new completed CI run.
+
+The realtime overlay intentionally remains disabled for production history frames until the ingestion layer supplies verified `price_adjustment_basis` metadata. This prevents accidental mixing of qfq/auto-adjusted history with raw provider quotes.
+
+## Taiwan institutional-flow audit
+
+The repository already contains a Taiwan-only TWSE T86 / TPEx OpenAPI fetcher. It returns raw net figures in **shares**, preserves negative values as net sells, and distinguishes dealer-excluded foreign investors from dealers. TWSE and TPEx fixtures both reconcile the official three-institution total to foreign + trust + dealer.
+
+A new fail-open guard now rejects a row if the official total differs from the three component net figures, rather than allowing contradictory numbers into the prompt. Regression tests cover a one-share discrepancy for both TWSE and TPEx. The raw figures are supplied to the Taiwan analysis prompt as context; they do not directly create a numeric score. The current prompt's directional descriptions are heuristic context only, not a deterministic buy/sell signal.
+
+The institutional fetcher only accepts explicit `.TW` / `.TWO` suffixes and checks the TPEx served date against an explicitly requested date. Missing fields, malformed values, date mismatch, and fetch errors fail open as unavailable rather than fabricated zero. This is the correct direction; remaining work is to confirm the live official response and ensure every report displays its source date and unit.
+
+## Persisted historical price-basis metadata
+
+The historical OHLC pipeline now attaches an explicit basis after normalization, cleaning, and indicator calculation:
+- AkShare daily history: `qfq` (the inspected A-share, ETF and HK endpoints explicitly request `adjust="qfq"`).
+- Yahoo Finance daily history: `auto_adjusted` (`yf.download(auto_adjust=True)`).
+- Tushare daily / fund_daily history: `raw` (the inspected endpoints return the daily price fields without applying `adj_factor`).
+
+`StockDaily.price_adjustment_basis` is nullable. The additive SQLite migration leaves all pre-existing rows NULL because their basis cannot safely be reconstructed. New writes persist DataFrame metadata; updates without basis metadata preserve an existing non-NULL basis. ORM `to_dict()` includes the basis so analysis reads it back from persisted rows.
+
+Realtime overlay now requires all persisted rows in the frame to agree on a known raw/unadjusted basis. Adjusted, mixed, or unknown history is rejected rather than comparing a raw realtime quote against incompatible historical prices. This is deliberately conservative; Taiwan daily history currently routes through Yahoo Finance and is tagged `auto_adjusted`, so Fugle raw intraday prices will not be merged into those daily bars until a verified adjustment-factor conversion is implemented.
+
+The schema migration and preservation behavior, YFinance basis tagging, and adjusted/unknown realtime rejection have regression tests. The latest complete CI run before these changes still failed in backend shard 1 on four unrelated tests (one missing Chat session table in a test DB and three AkShare HTTP-boundary tests); two other backend shards and Docker build passed. The new storage/basis tests are awaiting the latest CI run.
+
+### Official provider documentation cross-check (2026-11-10)
+
+- Fugle's official [Intraday Quote API](https://developer.fugle.tw/docs/data/http-api/intraday/quote/) sample for 2330 reports `total.tradeVolume=54,538`, `avgPrice=568.77`, and `total.tradeValue=31,019,803,000`. The value is consistent with 54,538 lots × 1,000 shares × approximately NT$568.77. The adapter's lot-to-share conversion is therefore supported by the published sample; the official response field itself is labelled cumulative volume but does not explicitly state the unit. The conversion remains covered by a regression test.
+- Fugle's [usage statement](https://developer.fugle.tw/docs/data/intro/) also says intraday cumulative volume/value covers regular board-lot trades only; odd-lot and after-hours transactions are excluded. This limitation must be shown in the report and must not be compared blindly to a full-day all-session historical volume.
+- Tushare's [A-share daily API](https://tushare.pro/document/1?doc_id=27) explicitly documents `daily` as unadjusted, volume in lots, and amount in thousand yuan. The current historical normalizer scales those values to shares and yuan.
+- Tushare's [rt_k real-time daily API](https://tushare.pro/document/1?doc_id=372) documents volume in shares and amount in yuan. The current code does not call `rt_k`; it calls `quotation`, whose exact response contract still requires separate verification. Do not infer `quotation` units from `rt_k`.
+
+
+## CI follow-up (2026-11-14)
+
+- PR head `bc47d43b62cd6e603a056f4681fde52e8fc97518` completed GitHub Actions run #55 successfully: all three backend test shards passed, Docker build passed, AI governance passed, change detection passed, and backend-gate passed. The three backend shards together reported 2,805 passed, 49 warnings, and 361 subtests passed.
+- Removed a Shenzhen-specific AkShare capital-flow test because Shenzhen/A-share coverage is outside this Taiwan dashboard's acceptance scope. Updated the remaining AkShare contract test to the current endpoint name; this is not evidence that live Taiwan institutional data has been verified.
+- Production `main` remains unchanged. PR #1 remains draft and unmerged.
+- Remaining pre-merge checks are operational/data-source checks, not a reason to weaken CI: verify current TWSE T86 and TPEx OpenAPI live payloads, confirm the exact AkShare 1.20.45 endpoint signature/columns if that adapter remains in scope, and confirm the user-facing report displays the Taiwan institutional source date and unit (shares). The TWSE/TPEx institutional fetcher is Taiwan-only and is the intended source for Taiwan three-institution figures; AkShare capital-flow compatibility is separate and must not be presented as Taiwan institutional data.
+
+
+## Product acceptance scope update (2026-11-14)
+
+The user has explicitly removed intraday real-time quotes from the required dashboard workflow. The intended report is post-market and must use completed daily bars; no intraday quote, partial-day volume, or realtime-price overlay is required for acceptance. Fugle quote normalization and realtime overlay are retained only as optional provider/legacy capabilities, not as dependencies or acceptance gates for the Taiwan daily report.
+
+Historical daily price-adjustment-basis metadata remains required: all candles used together for moving averages and other technical indicators must have a consistent, known basis, and missing/unknown basis must be disclosed or handled conservatively. The Taiwan institutional-flow block remains sourced from TWSE T86 / TPEx OpenAPI and must display its own source date and unit (shares). Missing or invalid figures remain unavailable, never fabricated as zero.
+
+This update disables realtime quote collection and realtime technical-indicator overlays by default. Explicit environment overrides can still enable legacy realtime functionality; that is not part of the Taiwan dashboard's required workflow. It does not change the post-market daily report or its Telegram/Email delivery.
+
+
+## Notification scope clarification (2026-11-15)
+
+Only automatic intraday real-time quote notifications are cancelled. The scheduled intraday Fugle snapshot workflow has had its cron triggers removed; manual dispatch remains available for maintenance/testing. The post-market daily analysis report and its existing Telegram/Email delivery routes are explicitly retained and unchanged. No report-channel environment variable is overridden or disabled by this change.
+
+
+## Official institutional-data definition cross-check (2026-11-15)
+
+The current TWSE T86 page for 2026-11-13 confirms the source field is “外陸資買賣超股數(不含外資自營商)” and separately reports “外資自營商買賣超股數”, “投信買賣超股數”, “自營商買賣超股數”, and “三大法人買賣超股數”. The TPEx official detail page explicitly defines the three-institution total as foreign/mainland investors excluding dealers + investment trusts + dealers. The report prompt now labels the foreign component precisely as 外陸資（不含外資自營商） rather than the over-broad shorthand 外資.
+
+The TWSE public page was discoverable for the 2026-11-13 report. The TPEx OpenAPI endpoint is documented in the official TPEx Swagger catalogue as `GET /tpex_3insti_daily_trading`, but a direct live endpoint request from this verification environment returned HTTP 403. Therefore the production TPEx payload shape is not declared live-verified in this pass; fixture-based parser tests remain the available code-level evidence. Keep fail-open behavior and do not treat a blocked verification request as proof of endpoint failure.
+
+
+## Institution coverage status semantics (2026-11-15)
+
+For Taiwan-listed / Taiwan-OTC symbols, the TWSE/TPEx institutional feed is an applicable source. If that fetch is skipped by configuration, times out, fails, returns no usable row, or omits a required component, the block is now marked `unavailable` with an explanatory error instead of `not_supported`. This prevents the report from confusing temporary data absence with a market that has no supported feed. `not_supported` is reserved for non-Taiwan markets where TWSE/TPEx institutional statistics do not apply. Genuine zero values remain valid data when all required fields and the official total reconciliation are present. Unavailable Taiwan institutional coverage downgrades the overall fundamental context to `partial`, and the institution block is included in `missing_fields`.
+
+
+## Trading-date integrity guard (2026-11-16)
+
+Daily-bar ingestion now rejects rows with an invalid/missing trading date and rejects duplicate calendar dates before indicator calculation. Datetime values are normalized to the session date first, so multiple timestamps from the same date cannot be counted as separate daily candles. The deterministic turnaround detector independently blocks missing, duplicate or unparseable session dates, preventing a repeated provider row from being interpreted as a next-session breakout retest and refusing to infer candle order when dates are absent.
+
+Calendar gaps are intentionally **not** rejected by simple consecutive-date checks: weekends and exchange holidays are legitimate. Detecting a missing trading session requires a verified exchange trading calendar and an explicit requested date range; it must not be inferred from calendar-day gaps.
+
+Regression coverage was added for invalid and duplicate dates in the generic daily-history cleaner and the turnaround detector. The latest branch head `74ad09b013f385d465f78de7e970386a760b6a66` passed GitHub Actions run #43829158008: all 10 jobs completed successfully, including all three backend test shards, web gate, AI governance, Docker build, and desktop packaging checks.
+
+
+## Follow-up: OHLCV row validation gap (2026-11-16)
+
+Resolved by the generic daily OHLCV fail-closed validation section below. Provider compatibility is being verified through CI; the shared cleaner now requires complete OHLCV fields and rejects malformed candles before indicators are calculated.
+
+
+## Generic daily OHLCV fail-closed validation (2026-11-16)
+
+The shared `BaseFetcher._clean_data` now requires all five daily candle fields (open/high/low/close/volume), rejects null or non-finite OHLCV values, rejects non-positive OHLC prices and negative volume, and validates that each candle's high/low range contains its open and close. It no longer silently drops rows solely because close or volume is null; malformed daily data rejects the batch before indicators are calculated. Optional `amount` and `pct_chg` metadata remain optional.
+
+Regression tests cover missing OHLC columns, infinite volume, zero close, negative volume, and impossible OHLC ranges. The first CI run after this change exposed two test-fixture defects rather than a production-data regression: (1) the infinite-volume test attempted to assign infinity into an integer-typed Pandas column; (2) the TickFlow long-history fixture kept high/low fixed while increasing close beyond the high. Both fixtures were corrected in follow-up commits. The next CI run (Run #183) completed with 3,167 tests passed and one failed in shard 3. The failure was a Traditional/Simplified Chinese character mismatch in the assertion: the test expected `數` while the production error text contained `数`; the visual similarity obscured the mismatch. The test now asserts the shared semantic token `非有限` in commit `f5373f24ca20db91b62adcab280b2412c7ae1d3c`. This latest correction has not yet been covered by a new CI run; do not treat the branch as CI-green until the updated head is tested. These changes remain on the engineering branch and are not production-deployed or merged.
+
+### Yahoo Finance Taiwan daily volume and amount handling
+
+The Taiwan daily-history route currently uses Yahoo Finance through YfinanceFetcher. The adapter passes Yahoo's Volume field through without a unit conversion. Its amount field is synthesized as volume * close; this is an estimate, not an exchange-reported traded value, and it uses the auto-adjusted close. The inspected repository code and tests do not independently establish Yahoo's Taiwan volume-unit contract. Therefore, do not label this estimated amount as official turnover, and do not use it as an authoritative cross-provider turnover comparison. The price basis remains explicitly tagged auto_adjusted; raw Fugle realtime prices must not be mixed into these daily bars without a verified adjustment conversion.
+
+A public-page spot check does not close the volume-unit contract. Yahoo's 2330.TW history page displayed Volume 28,844,142 on 2026-11-13 and 29,205,152 on 2026-11-12; TWSE's official daily report displayed 30,973,127 and 34,359,285 shares for those dates respectively. These values are on the same broad share-count scale (not a lots-scale value), but differ by approximately 6.9% and 15.0%. Yahoo's page labels the field only as "Volume", while TWSE explicitly labels its field "成交股數"; therefore this spot check supports neither an exact equivalence nor a precise unit/coverage contract. Keep the adapter pass-through unchanged and the unit caveat visible until a reproducible multi-day reconciliation explains the differences. Sources: Yahoo history https://au.finance.yahoo.com/quote/2330.TW/history/ ; TWSE daily report https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=html&stockNo=2330 .
+
+The inspected technical volume consumers in `src/stock_analyzer.py` and `src/utils/turnaround_signal.py` compare a completed daily bar's volume with averages of prior completed bars; they use relative ratios rather than absolute volume thresholds. `src/stock_analyzer.py` explicitly marks realtime cumulative volume as unconfirmed and skips the ratio. This reduces sensitivity to a consistent shares-versus-lots scale within one series, but does not make cross-provider mixing safe. Taiwan daily history currently routes through Yahoo only, so keep provider-source identity and unit provenance attached if another Taiwan daily source is added.

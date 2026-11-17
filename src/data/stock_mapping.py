@@ -72,6 +72,19 @@ STOCK_NAME_MAP = {
     "688111": "金山办公",
     "688256": "寒武纪",
     "688981": "中芯国际",
+    # === Taiwan stocks / ETFs (Yahoo Finance suffix form) ===
+    "1303.TW": "南亞",
+    "2408.TW": "南亞科",
+    "2330.TW": "台積電",
+    "2344.TW": "華邦電",
+    "2454.TW": "聯發科",
+    "3231.TW": "緯創",
+    "2881.TW": "富邦金",
+    "00919.TW": "群益台灣精選高息",
+    "00878.TW": "國泰永續高股息",
+    "0056.TW": "元大高股息",
+    "0050.TW": "元大台灣50",
+    "006208.TW": "富邦台50",
     # === US stocks ===
     "AAPL": "苹果",
     "TSLA": "特斯拉",
@@ -138,6 +151,19 @@ STOCK_NAME_MAP = {
 # massif-01 asked for on PR #2047 ("将搜索 identity 建模为真实 alias 集, 不要
 # 继续给 suffix stripping 堆启发式规则").
 STOCK_ENGLISH_NAME_MAP: Dict[str, Tuple[str, ...]] = {
+    # === Taiwan stocks / ETFs ===
+    "1303.TW": ("Nan Ya Plastics Corporation", "Nan Ya Plastics"),
+    "2408.TW": ("Nanya Technology Corporation", "Nanya Technology"),
+    "2330.TW": ("Taiwan Semiconductor Manufacturing Company", "TSMC"),
+    "2344.TW": ("Winbond Electronics Corporation", "Winbond"),
+    "2454.TW": ("MediaTek Inc.", "MediaTek"),
+    "3231.TW": ("Wistron Corporation", "Wistron"),
+    "2881.TW": ("Fubon Financial Holding", "Fubon Financial"),
+    "00919.TW": ("Capital Taiwan Select High Dividend ETF",),
+    "00878.TW": ("Cathay Sustainable High Dividend ETF",),
+    "0056.TW": ("Yuanta Taiwan High Dividend ETF",),
+    "0050.TW": ("Yuanta Taiwan Top 50 ETF",),
+    "006208.TW": ("Fubon Taiwan 50 ETF",),
     # === US stocks ===
     "AAPL": ("Apple Inc.", "Apple"),
     "TSLA": ("Tesla, Inc.", "Tesla"),

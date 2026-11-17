@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """TwInstitutionalFetcher — Taiwan 三大法人 (institutional-investor) daily net buy/sell.
 
-Data-layer only, ``tw``-only, strictly additive. This module is a self-contained
-data-access building block: it fetches, parses, caches and fail-opens. It is NOT
-wired into the analysis report / Web / scoring path — that is a deliberate
-follow-up (per #1777). It does not touch the existing A-share / HK / US / JP / KR
-flows in ``data_provider/base.py``.
+Data access is ``tw``-only and strictly additive. The normalized raw record is
+attached to Taiwan fundamental context and supplied to the LLM as a chip-filter
+input; it does not generate a derived institutional signal or numeric score. This
+module does not touch the existing A-share / HK / US / JP / KR flows in
+``data_provider/base.py``.
 
 Sources (政府開放資料, 政府資料開放授權條款第 1 版 / OGDL v1, commercial-safe, no key):
   - 上市 TWSE T86 「三大法人買賣超日報」 (per-stock), legacy RWD JSON endpoint
@@ -383,7 +383,16 @@ class TwInstitutionalFetcher:
     ) -> dict:
         # foreign / trust / dealer are guaranteed non-None by the parsers (a missing
         # component fails the row open upstream), so a genuine 0 is preserved as 0
-        # and is never confused with a missing column.
+        # and is never confused with a missing column. The official total should equal
+        # these three dealer-excluded categories; reject a mismatch instead of silently
+        # publishing contradictory institutional totals.
+        component_sum = foreign + trust + dealer
+        if total is not None and total != component_sum:
+            logger.warning(
+                "[tw-inst] total mismatch code=%s date=%s source=%s official=%s components=%s",
+                code, ad_date, source, total, component_sum,
+            )
+            return None
         return {
             "stock_code": code,
             "date": ad_date,
@@ -394,5 +403,5 @@ class TwInstitutionalFetcher:
             "trust_net": trust,
             "dealer_net": dealer,
             # Official total when present; otherwise the component sum (kept consistent).
-            "total_net": total if total is not None else foreign + trust + dealer,
+            "total_net": total if total is not None else component_sum,
         }

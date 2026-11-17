@@ -148,6 +148,74 @@ class TestYfinanceFundamentalAdapter(unittest.TestCase):
             ],
         )
 
+    def test_quarterly_gross_margin_is_not_replaced_by_ttm_info_margin(self) -> None:
+        info = {
+            "financialCurrency": "TWD",
+            "currency": "TWD",
+            "grossMargins": 0.7726,  # TTM value; must not be labelled as quarterly margin.
+            "returnOnEquity": 0.616,
+            "revenueGrowth": 0.2,
+            "earningsGrowth": 0.3,
+        }
+        income_df = pd.DataFrame(
+            {
+                pd.Timestamp("2026-09-30"): {
+                    "Total Revenue": 1000.0,
+                    "Gross Profit": 856.6,
+                    "Net Income": 250.0,
+                },
+                pd.Timestamp("2025-09-30"): {
+                    "Total Revenue": 800.0,
+                    "Gross Profit": 600.0,
+                    "Net Income": 100.0,
+                },
+            }
+        )
+        cashflow_df = pd.DataFrame({
+            pd.Timestamp("2026-09-30"): {"Operating Cash Flow": 120.0},
+        })
+        ticker = _build_mock_ticker(info, income_df, cashflow_df)
+        with patch("yfinance.Ticker", return_value=ticker):
+            bundle = YfinanceFundamentalAdapter().get_fundamental_bundle("2408.TW")
+
+        growth = bundle["growth"]
+        self.assertAlmostEqual(growth["gross_margin"], 85.66, places=2)
+        self.assertEqual(growth["gross_margin_basis"], "quarterly_statement")
+        self.assertEqual(growth["revenue_yoy_basis"], "same_quarter_statement_yoy")
+        self.assertEqual(growth["net_profit_yoy_basis"], "same_quarter_statement_yoy")
+        self.assertEqual(growth["roe_basis"], "ttm")
+
+        report = bundle["earnings"]["financial_report"]
+        self.assertEqual(report["report_date"], "2026-09-30")
+        self.assertEqual(report["revenue"], 1000.0)
+        self.assertEqual(report["revenue_basis"], "quarterly_statement")
+        self.assertEqual(report["net_profit_parent"], 250.0)
+        self.assertEqual(report["net_profit_basis"], "quarterly_statement")
+        self.assertEqual(report["operating_cash_flow"], 120.0)
+        self.assertEqual(report["operating_cash_flow_basis"], "quarterly_statement")
+        self.assertEqual(report["roe_basis"], "ttm")
+
+    def test_quarterly_gross_profit_is_not_divided_by_ttm_revenue_fallback(self) -> None:
+        info = {
+            "financialCurrency": "TWD",
+            "currency": "TWD",
+            "totalRevenue": 5000.0,
+            "grossMargins": 0.7726,
+        }
+        income_df = pd.DataFrame({
+            pd.Timestamp("2026-09-30"): {"Gross Profit": 800.0},
+        })
+        ticker = _build_mock_ticker(info, income_df)
+        with patch("yfinance.Ticker", return_value=ticker):
+            bundle = YfinanceFundamentalAdapter().get_fundamental_bundle("2344.TW")
+
+        self.assertEqual(bundle["growth"]["gross_margin"], 77.26)
+        self.assertEqual(bundle["growth"]["gross_margin_basis"], "ttm")
+        report = bundle["earnings"]["financial_report"]
+        self.assertEqual(report["revenue"], 5000.0)
+        self.assertEqual(report["revenue_basis"], "ttm_info")
+
+
     def test_dividends_parsed_from_single_column_dataframe(self) -> None:
         # yfinance 1.2.x returns Ticker.dividends as a single-column DataFrame, not a
         # Series. Without coercion, `.items()` yields (column_name, Series), every event

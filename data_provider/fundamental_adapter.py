@@ -524,6 +524,10 @@ class AkshareFundamentalAdapter:
         market = _to_sina_tx_symbol(stock_code)[:2]
         stock_code = _normalize_code(stock_code)
         stock_df, stock_source, stock_errors = self._call_df_candidates([
+            # AkShare 1.20.45 renamed the Eastmoney historical endpoint.
+            # Its current signature accepts the exchange-prefixed symbol.
+            ("stock_fund_flow_individual_hist_em", {"symbol": stock_code, "market": market}),
+            # Retain compatibility with older AkShare releases.
             ("stock_individual_fund_flow", {"stock": stock_code, "market": market}),
         ])
         result["errors"].extend(stock_errors)
@@ -540,7 +544,11 @@ class AkshareFundamentalAdapter:
                     }
                     result["source_chain"].append(f"capital_stock:{stock_source}")
 
+        # AkShare 1.20.45 renamed this endpoint and removed the legacy
+        # symbol. Prefer the current public API while retaining compatibility
+        # with older pinned installations and test doubles.
         sector_df, sector_source, sector_errors = self._call_df_candidates([
+            ("stock_fund_flow_sector_rank_em", {"indicator": "今日", "sector_type": "行业资金流"}),
             ("stock_sector_fund_flow_rank", {}),
         ])
         result["errors"].extend(sector_errors)
