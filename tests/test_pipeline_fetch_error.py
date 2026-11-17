@@ -2,6 +2,7 @@
 """Regression tests for pipeline data-fetch error handling."""
 
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
