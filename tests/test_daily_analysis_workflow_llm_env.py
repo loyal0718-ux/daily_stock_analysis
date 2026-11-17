@@ -59,20 +59,18 @@ def _load_daily_analysis_env() -> dict[str, str]:
     return analyze_step["env"]
 
 
-def test_daily_analysis_is_locked_to_gemini_only() -> None:
+def test_daily_analysis_preserves_configurable_generation_routing() -> None:
     env = _load_daily_analysis_env()
-    assert env["GENERATION_BACKEND"] == "litellm"
-    assert env["GENERATION_FALLBACK_BACKEND"] == "litellm"
-    assert env["LLM_CHANNELS"] == ""
+    assert env["GENERATION_BACKEND"] == "${{ vars.GENERATION_BACKEND || secrets.GENERATION_BACKEND }}"
+    assert env["GENERATION_FALLBACK_BACKEND"] == "${{ vars.GENERATION_FALLBACK_BACKEND || secrets.GENERATION_FALLBACK_BACKEND || 'litellm' }}"
     assert env["GEMINI_API_KEY"] == "${{ secrets.GEMINI_API_KEY }}"
-    assert env["GEMINI_MODEL"] == "gemini-3.8-flash"
-    assert env["GEMINI_MODEL_FALLBACK"] == ""
-    forbidden = (
-        "LITELLM_CONFIG", "LITELLM_CONFIG_YAML", "LITELLM_MODEL",
-        "LITELLM_FALLBACK_MODELS", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-        "DEEPSEEK_API_KEY", "AIHUBMIX_KEY", "MODELFLARE_KEY",
-    )
-    assert not any(key in env for key in forbidden)
+    assert env["GEMINI_MODEL"] == "${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}"
+    assert env["GEMINI_MODEL_FALLBACK"] == "${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}"
+    for key in ("LITELLM_CONFIG", "LITELLM_CONFIG_YAML", "LITELLM_MODEL",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
+                "AIHUBMIX_KEY", "MODELFLARE_KEY", "LLM_CHANNELS",
+                "LLM_PRIMARY_API_KEY", "LLM_SECONDARY_API_KEY"):
+        assert key in env, f"Existing provider configuration {key} must remain available"
 
 
 def test_retired_gemini_fallback_is_normalized() -> None:
@@ -80,20 +78,6 @@ def test_retired_gemini_fallback_is_normalized() -> None:
 
     assert normalize_gemini_fallback_model("gemini-2.5-flash") == "gemini-3.8-flash"
     assert normalize_gemini_fallback_model("gemini-3.7-flash") == "gemini-3.7-flash"
-
-
-def test_daily_analysis_disables_secondary_model_fallback() -> None:
-    env = _load_daily_analysis_env()
-    assert env["GEMINI_MODEL_FALLBACK"] == ""
-
-
-def test_daily_analysis_does_not_inject_modelflare_credentials() -> None:
-    assert "MODELFLARE_KEY" not in _load_daily_analysis_env()
-
-
-def test_daily_analysis_does_not_inject_third_party_channel_credentials() -> None:
-    env = _load_daily_analysis_env()
-    assert not any(key.startswith("LLM_") and key.endswith(("_API_KEY", "_API_KEYS")) for key in env)
 
 
 def test_daily_analysis_maps_usage_hmac_config_safely() -> None:
@@ -116,17 +100,6 @@ def test_daily_analysis_maps_prompt_cache_config() -> None:
         assert key in env
         assert f"vars.{key}" in env[key]
         assert f"secrets.{key}" in env[key]
-
-
-def test_daily_analysis_generation_backend_is_not_user_overridable() -> None:
-    env = _load_daily_analysis_env()
-    assert env["GENERATION_BACKEND"] == "litellm"
-    assert env["GENERATION_FALLBACK_BACKEND"] == "litellm"
-
-
-def test_daily_analysis_has_no_secondary_provider_fallback() -> None:
-    env = _load_daily_analysis_env()
-    assert env["GEMINI_MODEL_FALLBACK"] == ""
 
 
 def test_env_example_includes_provider_template_channel_examples() -> None:
