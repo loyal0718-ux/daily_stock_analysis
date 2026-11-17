@@ -60,7 +60,9 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         pipeline.db = MagicMock()
         pipeline.fetcher_manager.get_stock_name.return_value = "台積電"
         pipeline.db.has_today_data.return_value = False
-        pipeline.fetcher_manager.get_daily_data.return_value = ("daily-frame", "Yahoo")
+        daily_frame = MagicMock()
+        daily_frame.empty = False
+        pipeline.fetcher_manager.get_daily_data.return_value = (daily_frame, "Yahoo")
 
         success, error = StockAnalysisPipeline.fetch_and_save_stock_data(
             pipeline,
@@ -71,7 +73,7 @@ class PipelineFetchErrorTestCase(unittest.TestCase):
         self.assertTrue(success)
         self.assertIsNone(error)
         pipeline.fetcher_manager.get_daily_data.assert_called_once_with("2330.TW", days=120)
-        pipeline.db.save_daily_data.assert_called_once_with("daily-frame", "2330.TW", "Yahoo")
+        pipeline.db.save_daily_data.assert_called_once_with(daily_frame, "2330.TW", "Yahoo")
 
     def test_resolve_resume_target_date_normalizes_supported_a_share_formats(self):
         with patch("src.core.pipeline.get_market_for_stock", return_value="cn") as mock_market, patch(
