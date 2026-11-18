@@ -227,6 +227,32 @@ class YfinanceFetcher(BaseFetcher):
             if df.empty:
                 raise DataFetchError(f"Yahoo Finance 未查询到 {stock_code} 的数据")
 
+            # Taiwan shares: overlay official exchange volume when a same-date
+            # official record exists. Keep Yahoo adjusted OHLC untouched; unmatched
+            # rows remain explicitly marked as unverified Yahoo volume.
+            if self._is_tw_suffix_stock(stock_code):
+                try:
+                    from .tw_official_market_data import overlay_official_tw_volume
+
+                    indexed = df.reset_index()
+                    date_col = next(
+                        (col for col in indexed.columns if str(col).lower() in ("date", "datetime")),
+                        indexed.columns[0],
+                    )
+                    indexed = indexed.rename(columns={date_col: "date"})
+                    indexed = overlay_official_tw_volume(
+                        indexed, stock_code, start_date, end_date
+                    )
+                    indexed = indexed.set_index("date")
+                    indexed.index.name = df.index.name or "Date"
+                    # Retain explicit provenance for downstream diagnostics.
+                    df = indexed
+                except Exception as exc:
+                    logger.warning(
+                        "Official Taiwan volume overlay skipped for %s: %s",
+                        stock_code, exc
+                    )
+
             return df
 
         except Exception as e:
