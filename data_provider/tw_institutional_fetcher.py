@@ -265,7 +265,12 @@ class TwInstitutionalFetcher:
         resp = requests.get(
             url,
             params=params,
-            headers={"User-Agent": _UA, "Accept": "application/json"},
+            headers={
+                "User-Agent": _UA,
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                "Referer": "https://www.tpex.org.tw/openapi/",
+            },
             timeout=self._timeout,
         )
         resp.raise_for_status()
