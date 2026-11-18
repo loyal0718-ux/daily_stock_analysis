@@ -59,6 +59,15 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
+
+      # TPEx exposes only the latest snapshot; persist only exchange volume rows.
+      - name: 恢复櫃買官方成交量歷史
+        uses: actions/cache/restore@v4
+        with:
+          path: data/official_market_data/tpex_daily.jsonl
+          key: tpex-official-volume-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            tpex-official-volume-
       
       - name: 执行股票分析
         env:
@@ -562,6 +571,13 @@ jobs:
             python main.py $FORCE_RUN_ARG
           fi
       
+      - name: 保存櫃買官方成交量歷史
+        uses: actions/cache/save@v4
+        if: always() && hashFiles('data/official_market_data/tpex_daily.jsonl') != ''
+        with:
+          path: data/official_market_data/tpex_daily.jsonl
+          key: tpex-official-volume-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
         if: always()
