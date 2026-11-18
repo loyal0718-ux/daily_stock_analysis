@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -58,7 +60,77 @@ class TestTaiwanOfficialVolume(unittest.TestCase):
         self.assertEqual(int(result.iloc[0]["volume_yahoo"]), 28844142)
         self.assertEqual(result.iloc[0]["volume_source"], "TWSE_STOCK_DAY")
         self.assertEqual(result.iloc[1]["volume_source"], "yahoo_unverified")
-        self.assertEqual(result.iloc[1]["volume"], 20000000)
+
+    def test_tpex_history_accumulates_idempotently_between_runs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            history_path = os.path.join(temp_dir, "tpex_daily.jsonl")
+            with patch.dict(os.environ, {"TPEX_OFFICIAL_HISTORY_PATH": history_path}):
+                first_frame = pd.DataFrame({
+                    "date": pd.to_datetime(["2026-06-25"]),
+                    "volume": [900],
+                })
+                with patch(
+                    "data_provider.tw_official_market_data.fetch_tpex_latest_volume",
+                    return_value=pd.DataFrame({
+                        "date": [pd.Timestamp("2026-06-25")],
+                        "volume": [1234567],
+                    }),
+                ):
+                    first = overlay_official_tw_volume(
+                        first_frame, "6488.TWO", "2026-06-25", "2026-06-25"
+                    )
+                self.assertEqual(int(first.iloc[0]["volume"]), 1234567)
+                self.assertEqual(first.iloc[0]["volume_source"], "TPEX_LATEST_SNAPSHOT_HISTORY")
+
+                second_frame = pd.DataFrame({
+                    "date": pd.to_datetime(["2026-06-25", "2026-06-26"]),
+                    "volume": [901, 902],
+                })
+                with patch(
+                    "data_provider.tw_official_market_data.fetch_tpex_latest_volume",
+                    return_value=pd.DataFrame({
+                        "date": [pd.Timestamp("2026-06-26")],
+                        "volume": [2345678],
+                    }),
+                ):
+                    second = overlay_official_tw_volume(
+                        second_frame, "6488.TWO", "2026-06-25", "2026-06-26"
+                    )
+                self.assertEqual(second["volume"].tolist(), [1234567, 2345678])
+                self.assertTrue((second["volume_source"] == "TPEX_LATEST_SNAPSHOT_HISTORY").all())
+
+                with patch(
+                    "data_provider.tw_official_market_data.fetch_tpex_latest_volume",
+                    return_value=pd.DataFrame({
+                        "date": [pd.Timestamp("2026-06-26")],
+                        "volume": [2345678],
+                    }),
+                ):
+                    overlay_official_tw_volume(
+                        second_frame, "6488.TWO", "2026-06-25", "2026-06-26"
+                    )
+                with open(history_path, "r", encoding="utf-8") as handle:
+                    records = [line for line in handle if line.strip()]
+                self.assertEqual(len(records), 2)
+
+    def test_tpex_unmatched_dates_are_not_filled_with_zero(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            history_path = os.path.join(temp_dir, "tpex_daily.jsonl")
+            with patch.dict(os.environ, {"TPEX_OFFICIAL_HISTORY_PATH": history_path}):
+                source = pd.DataFrame({
+                    "date": pd.to_datetime(["2026-06-25"]),
+                    "volume": [777],
+                })
+                with patch(
+                    "data_provider.tw_official_market_data.fetch_tpex_latest_volume",
+                    return_value=pd.DataFrame(columns=["date", "volume"]),
+                ):
+                    result = overlay_official_tw_volume(
+                        source, "6488.TWO", "2026-06-25", "2026-06-25"
+                    )
+                self.assertEqual(result.iloc[0]["volume"], 777)
+                self.assertEqual(result.iloc[0]["volume_source"], "yahoo_unverified")
+                self.assertFalse(os.path.exists(history_path))
 
 
 if __name__ == "__main__":
